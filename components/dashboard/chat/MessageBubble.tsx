@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage } from '@/types/session';
-import { highlightMarkdown } from '@/lib/codeHighlight';
+import { renderMarkdown } from '@/lib/markdownRenderer';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -12,17 +12,38 @@ interface MessageBubbleProps {
 export default function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [htmlContent, setHtmlContent] = useState<string>('');
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isUser) {
       setHtmlContent(escapeHtml(message.content));
       return;
     }
-    // assistant 메시지는 코드 블록 하이라이팅
-    highlightMarkdown(message.content).then((html) => {
+    renderMarkdown(message.content).then((html) => {
       setHtmlContent(html);
     });
   }, [message.content, isUser]);
+
+  // 복사 버튼 클릭 위임 처리
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleClick = (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement).closest('.copy-btn') as HTMLElement | null;
+      if (!btn) return;
+      const code = btn.dataset.copyCode ?? '';
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = '복사됨!';
+        setTimeout(() => {
+          btn.textContent = '복사';
+        }, 2000);
+      });
+    };
+
+    container.addEventListener('click', handleClick);
+    return () => container.removeEventListener('click', handleClick);
+  }, [htmlContent]);
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -41,7 +62,7 @@ export default function MessageBubble({ message, isStreaming }: MessageBubblePro
       {/* Bubble */}
       <div
         className={[
-          'max-w-[660px] px-4 py-3 rounded-xl text-[14px] leading-relaxed',
+          'max-w-[720px] px-4 py-3 rounded-xl text-[14px] leading-relaxed',
           isUser
             ? 'bg-[#312E81] text-indigo-100 rounded-tr-sm'
             : 'bg-[#161B27] border border-[#1E2535] text-slate-300 rounded-tl-sm',
@@ -66,8 +87,9 @@ export default function MessageBubble({ message, isStreaming }: MessageBubblePro
           <span className="whitespace-pre-wrap">{message.content}</span>
         ) : (
           <div
-            className="prose-sm prose-invert max-w-none shiki-wrap"
-            dangerouslySetInnerHTML={{ __html: htmlContent || message.content }}
+            ref={containerRef}
+            className="md-prose max-w-none"
+            dangerouslySetInnerHTML={{ __html: htmlContent || escapeHtml(message.content) }}
           />
         )}
 

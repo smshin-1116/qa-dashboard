@@ -14,7 +14,7 @@ import { initModel, persistModel } from '@/constants/modelSupport';
 import { downloadTcXlsx, hasTcResult } from '@/lib/tcExport';
 import { useMcpStatus } from '@/hooks/useMcpStatus';
 import { useToast } from '@/hooks/useToast';
-import { META_PREFIX } from '@/constants/streamProtocol';
+import { META_PREFIX, TOOL_PREFIX } from '@/constants/streamProtocol';
 import type { AIModel, Attachment } from '@/types/session';
 
 export default function DashboardPage() {
@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [activeModel, setActiveModel] = useState<AIModel>('claude');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [toolStatus, setToolStatus] = useState('');
 
   // R-09: 스트리밍 완료 후 TC 파싱 타이밍을 위한 별도 상태
   const [tcAvailable, setTcAvailable] = useState(false);
@@ -104,6 +105,7 @@ export default function DashboardPage() {
 
       setIsStreaming(true);
       setStreamingContent('');
+      setToolStatus('');
 
       try {
         const res = await fetch('/api/dashboard/chat', {
@@ -165,6 +167,14 @@ export default function DashboardPage() {
             full += chunk;
           }
 
+          // TOOL 라인 추출 및 제거
+          const toolLineRegex = new RegExp(`${TOOL_PREFIX.replace(':', '\\:')}([^\n]+)\n`, 'g');
+          let toolMatch: RegExpExecArray | null;
+          while ((toolMatch = toolLineRegex.exec(full)) !== null) {
+            setToolStatus(toolMatch[1]);
+          }
+          full = full.replace(new RegExp(`${TOOL_PREFIX.replace(':', '\\:')}[^\n]*\n`, 'g'), '');
+
           setStreamingContent(full);
         }
 
@@ -172,6 +182,7 @@ export default function DashboardPage() {
         flushSync(() => {
           setIsStreaming(false);
           setStreamingContent('');
+          setToolStatus('');
         });
         await addMessage({ role: 'assistant', content: full });
       } catch (err) {
@@ -179,6 +190,7 @@ export default function DashboardPage() {
         flushSync(() => {
           setIsStreaming(false);
           setStreamingContent('');
+          setToolStatus('');
         });
         await addMessage({ role: 'assistant', content: `오류가 발생했습니다: ${msg}` });
         addToast('error', msg);
@@ -228,6 +240,7 @@ export default function DashboardPage() {
               session={activeSession}
               isStreaming={isStreaming}
               streamingContent={streamingContent}
+              toolStatus={toolStatus}
               hasTcResult={tcAvailable}
               onDownloadXlsx={handleDownloadXlsx}
             />

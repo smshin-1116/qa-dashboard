@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { ChatMessage, Session } from '@/types/session';
+import type { Session } from '@/types/session';
 import MessageBubble from './MessageBubble';
 
 interface ChatAreaProps {
   session: Session | null;
   isStreaming: boolean;
   streamingContent: string;
+  toolStatus: string;
   hasTcResult: boolean;
   onDownloadXlsx: () => void;
 }
@@ -16,6 +17,7 @@ export default function ChatArea({
   session,
   isStreaming,
   streamingContent,
+  toolStatus,
   hasTcResult,
   onDownloadXlsx,
 }: ChatAreaProps) {
@@ -23,7 +25,7 @@ export default function ChatArea({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [session?.messages, streamingContent]);
+  }, [session?.messages, streamingContent, toolStatus]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[#0F1117]">
@@ -42,7 +44,7 @@ export default function ChatArea({
           )}
         </div>
 
-        {/* TC 다운로드 버튼 — TC 결과 있을 때만 활성 */}
+        {/* TC 다운로드 버튼 */}
         {hasTcResult ? (
           <button
             onClick={onDownloadXlsx}
@@ -68,19 +70,56 @@ export default function ChatArea({
         )}
 
         {/* 스트리밍 중인 응답 */}
-        {isStreaming && (
+        {isStreaming && streamingContent && (
           <MessageBubble
             message={{
               id: '__streaming__',
               role: 'assistant',
-              content: streamingContent || '…',
+              content: streamingContent,
               createdAt: Date.now(),
             }}
             isStreaming
           />
         )}
 
+        {/* 작업 상태 표시 */}
+        {isStreaming && (
+          <WorkingStatus toolStatus={toolStatus} hasContent={!!streamingContent} />
+        )}
+
         <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+function WorkingStatus({ toolStatus, hasContent }: { toolStatus: string; hasContent: boolean }) {
+  // 텍스트가 이미 스트리밍 중이면 상태 표시 불필요
+  if (hasContent && !toolStatus) return null;
+
+  return (
+    <div className="flex items-center gap-3 px-1">
+      {/* 봇 아바타 자리 */}
+      <div className="w-8 h-8 rounded-full flex-shrink-0 bg-[#1E2535] border border-[#2A3347] flex items-center justify-center text-sm">
+        🤖
+      </div>
+
+      <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[#161B27] border border-[#1E2535]">
+        {/* 도트 애니메이션 */}
+        <div className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:0ms]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]" />
+        </div>
+
+        {toolStatus ? (
+          <span className="text-[13px] text-slate-400">
+            <span className="text-indigo-400 font-medium">{toolStatus}</span>
+            <span className="text-slate-600"> 중...</span>
+          </span>
+        ) : (
+          <span className="text-[13px] text-slate-500">생각 중...</span>
+        )}
       </div>
     </div>
   );

@@ -24,3 +24,132 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ===== Markdown Prose ===== */
+.md-prose p {
+  margin: 0.4rem 0;
+  line-height: 1.75;
+}
+.md-prose h1,
+.md-prose h2,
+.md-prose h3,
+.md-prose h4 {
+  color: #e2e8f0;
+  font-weight: 600;
+  margin: 1rem 0 0.4rem;
+}
+.md-prose h1 { font-size: 1.2rem; }
+.md-prose h2 { font-size: 1.05rem; border-bottom: 1px solid #1e2535; padding-bottom: 0.25rem; }
+.md-prose h3 { font-size: 0.95rem; }
+.md-prose ul,
+.md-prose ol {
+  padding-left: 1.25rem;
+  margin: 0.4rem 0;
+}
+.md-prose li { margin: 0.2rem 0; line-height: 1.7; }
+.md-prose strong { color: #c7d2fe; font-weight: 600; }
+.md-prose em { color: #a5b4fc; }
+.md-prose a { color: #818cf8; text-decoration: underline; }
+.md-prose hr { border-color: #1e2535; margin: 0.75rem 0; }
+.md-prose blockquote {
+  border-left: 3px solid #3730a3;
+  padding-left: 0.75rem;
+  color: #94a3b8;
+  margin: 0.5rem 0;
+}
+/* 인라인 코드 */
+.md-prose code:not([class]) {
+  background: #1e2535;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: #a78bfa;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ===== Table ===== */
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  border-radius: 8px;
+  border: 1px solid #1e2535;
+}
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.md-table thead tr { background: #1a2035; }
+.md-table th {
+  padding: 8px 12px;
+  text-align: left;
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 1px solid #1e2535;
+}
+.md-table td {
+  padding: 7px 12px;
+  color: #cbd5e1;
+  border-bottom: 1px solid #111827;
+  vertical-align: top;
+}
+.md-table tbody tr:hover { background: #111827; }
+.md-table tbody tr:last-child td { border-bottom: none; }
+
+/* ===== Badges ===== */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.priority-highest { background: #450a0a; color: #f87171; border: 1px solid #7f1d1d; }
+.priority-high    { background: #431407; color: #fb923c; border: 1px solid #7c2d12; }
+.priority-medium  { background: #422006; color: #fbbf24; border: 1px solid #78350f; }
+.priority-low     { background: #0c1a2e; color: #60a5fa; border: 1px solid #1e3a5f; }
+
+.status-notrun  { background: #1f2937; color: #9ca3af; border: 1px solid #374151; }
+.status-pass    { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+.status-fail    { background: #450a0a; color: #f87171; border: 1px solid #7f1d1d; }
+.status-blocked { background: #2d1b69; color: #a78bfa; border: 1px solid #4c1d95; }
+
+/* ===== Code Block ===== */
+.code-block-wrap {
+  margin: 0.75rem 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #1e2535;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #1a2035;
+  border-bottom: 1px solid #1e2535;
+}
+.code-lang {
+  font-size: 11px;
+  color: #64748b;
+  font-family: var(--font-mono, monospace);
+}
+.copy-btn {
+  font-size: 11px;
+  color: #64748b;
+  background: transparent;
+  border: 1px solid #2a3347;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.copy-btn:hover { color: #94a3b8; border-color: #3a4357; }
+/* shiki 출력 내 여백 제거 */
+.code-block-wrap pre {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+}
