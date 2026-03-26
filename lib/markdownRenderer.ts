@@ -59,9 +59,21 @@ function applyBadges(html: string): string {
  * - 테이블: 스타일 클래스 적용
  * - 우선순위/상태: 색상 배지
  */
+/**
+ * 줄 경계에 걸친 **bold** 패턴을 단락으로 분리
+ * 예: "텍스트\n**제목**" → "텍스트\n\n**제목**"
+ */
+function normalizeBoldHeadings(text: string): string {
+  // 줄 시작의 **...** 패턴 앞에 빈 줄 삽입 (이미 빈 줄이 있으면 skip)
+  return text.replace(/([^\n])\n(\*\*[^*]+\*\*)/g, '$1\n\n$2');
+}
+
 export async function renderMarkdown(text: string): Promise<string> {
   const PLACEHOLDER = '\x00CODEBLOCK\x00';
   const codeBlocks: string[] = [];
+
+  // 0. 줄 경계 bold 패턴 정규화
+  text = normalizeBoldHeadings(text);
 
   // 1. 코드 블록 추출 및 하이라이트
   const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
@@ -84,8 +96,8 @@ export async function renderMarkdown(text: string): Promise<string> {
     codeBlocks.push(builtBlocks[i]);
   }
 
-  // 2. marked로 나머지 마크다운 파싱
-  let html = await marked.parse(processedText);
+  // 2. marked로 나머지 마크다운 파싱 (breaks: true로 단일 줄바꿈을 <br>로 처리)
+  let html = await marked.parse(processedText, { breaks: true });
 
   // 3. 코드 블록 복원
   for (let i = 0; i < codeBlocks.length; i++) {
