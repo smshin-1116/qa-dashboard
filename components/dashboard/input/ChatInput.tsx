@@ -29,6 +29,8 @@ export default function ChatInput({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [codeMode, setCodeMode] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -111,8 +113,65 @@ export default function ChatInput({
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
+  const processFiles = useCallback(async (files: File[]) => {
+    const newAttachments: Attachment[] = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise<Attachment>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve({
+                id: `att-${++attachIdCounter}`,
+                type: file.type.startsWith('image/') ? 'image' : 'file',
+                name: file.name,
+                data: reader.result as string,
+                mimeType: file.type,
+              });
+            };
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+    setAttachments((prev) => [...prev, ...newAttachments]);
+  }, []);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (dragCounterRef.current === 1) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) processFiles(files);
+  };
+
   return (
-    <div className="px-6 pb-[18px] pt-[14px] bg-[#0F1117] border-t border-[#1E2535] flex-shrink-0">
+    <div
+      className="px-6 pb-[18px] pt-[14px] bg-[#0F1117] border-t border-[#1E2535] flex-shrink-0 relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-10 bg-indigo-900/40 border-2 border-dashed border-indigo-500 rounded-[10px] flex items-center justify-center pointer-events-none">
+          <span className="text-indigo-300 text-[14px] font-medium">파일을 여기에 놓으세요</span>
+        </div>
+      )}
       {/* 첨부파일 미리보기 */}
       {attachments.length > 0 && (
         <div className="flex gap-2 flex-wrap mb-2.5">
@@ -241,7 +300,7 @@ export default function ChatInput({
       </div>
 
       <p className="text-[11px] text-slate-600 mt-2 text-center">
-        Enter로 전송 · Shift+Enter 줄바꿈 · 파일/이미지/코드 첨부 가능
+        Enter로 전송 · Shift+Enter 줄바꿈 · 파일/이미지/코드 첨부 가능 · 드래그 앤 드롭 지원
       </p>
     </div>
   );
