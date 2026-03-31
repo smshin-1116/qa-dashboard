@@ -1,28 +1,51 @@
 import { NextResponse } from 'next/server';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
-/**
- * MCP 서버 연결 상태를 반환합니다.
- * 실제 환경에서는 각 MCP 서버에 ping을 보내거나 프로세스 상태를 확인합니다.
- * 현재는 환경변수 존재 여부로 연결 상태를 판단합니다.
- */
+const execFileAsync = promisify(execFile);
+
+const MCP_SERVER_CONFIG = [
+  {
+    name: 'Figma',
+    keys: ['figma-remote-mcp', 'claude.ai figma', 'figma'],
+    tools: ['get_design_context', 'get_screenshot', 'generate_diagram'],
+  },
+  {
+    name: 'Jira',
+    keys: ['atlassian', 'claude.ai atlassian', 'jira'],
+    tools: ['searchJiraIssues', 'createJiraIssue', 'editJiraIssue'],
+  },
+  {
+    name: 'GitHub',
+    keys: ['github', 'claude.ai github'],
+    tools: ['search_code', 'list_issues', 'create_pull_request'],
+  },
+];
+
+async function getConnectedMcpServers(): Promise<Set<string>> {
+  try {
+    const { stdout } = await execFileAsync('claude', ['mcp', 'list'], { timeout: 10000 });
+    const connected = new Set<string>();
+    for (const line of stdout.split('\n')) {
+      if (line.includes('✓ Connected')) {
+        const serverName = line.split(':')[0].trim().toLowerCase();
+        connected.add(serverName);
+      }
+    }
+    return connected;
+  } catch {
+    return new Set();
+  }
+}
+
 export async function GET() {
-  const servers = [
-    {
-      name: 'Figma',
-      connected: !!process.env.FIGMA_ACCESS_TOKEN,
-      tools: ['get_design_context', 'get_screenshot', 'generate_diagram'],
-    },
-    {
-      name: 'Jira',
-      connected: !!(process.env.CONFLUENCE_API_TOKEN && process.env.CONFLUENCE_BASE_URL),
-      tools: ['searchJiraIssues', 'createJiraIssue', 'editJiraIssue'],
-    },
-    {
-      name: 'GitHub',
-      connected: !!process.env.GITHUB_TOKEN,
-      tools: ['search_code', 'list_issues', 'create_pull_request'],
-    },
-  ];
+  const connected = await getConnectedMcpServers();
+
+  const servers = MCP_SERVER_CONFIG.map((config) => ({
+    name: config.name,
+    connected: config.keys.some((key) => connected.has(key.toLowerCase())),
+    tools: config.tools,
+  }));
 
   return NextResponse.json({ servers });
 }

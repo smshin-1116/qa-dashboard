@@ -52,7 +52,13 @@ function getToolLabel(toolName: string): string {
   );
 }
 
+const ATLASSIAN_CLOUD_ID = process.env.CONFLUENCE_BASE_URL
+  ? new URL(process.env.CONFLUENCE_BASE_URL).hostname
+  : null;
+
 const QA_SYSTEM_PROMPT = `당신은 QA(품질보증) 전문 에이전트입니다.
+
+## Atlassian 설정${ATLASSIAN_CLOUD_ID ? `\n- Jira/Confluence cloudId: ${ATLASSIAN_CLOUD_ID}\n- MCP Atlassian 도구 호출 시 cloudId는 항상 "${ATLASSIAN_CLOUD_ID}"를 사용합니다.` : ''}
 
 ## 지원 업무
 - 테스트 케이스(TC) 작성 및 xlsx 형식 출력
