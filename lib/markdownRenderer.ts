@@ -60,12 +60,26 @@ function applyBadges(html: string): string {
  * - 우선순위/상태: 색상 배지
  */
 /**
- * 줄 경계에 걸친 **bold** 패턴을 단락으로 분리
- * 예: "텍스트\n**제목**" → "텍스트\n\n**제목**"
+ * **bold** 패턴 정규화
+ * 1. 여러 줄에 걸친 **...** → 단일 줄로 병합
+ * 2. 줄 시작 **...** 앞에 빈 줄 삽입 (단락 분리)
+ * 3. 닫히지 않은 ** 제거 (스트리밍 중 잘린 경우)
  */
 function normalizeBoldHeadings(text: string): string {
-  // 줄 시작의 **...** 패턴 앞에 빈 줄 삽입 (이미 빈 줄이 있으면 skip)
-  return text.replace(/([^\n])\n(\*\*[^*]+\*\*)/g, '$1\n\n$2');
+  // 1. 여러 줄에 걸친 **...\n...** 를 단일 줄로 병합
+  text = text.replace(/\*\*([^*\n]+)\n([^*\n]+)\*\*/g, '**$1 $2**');
+
+  // 2. 줄 시작의 **...** 패턴 앞에 빈 줄 삽입
+  text = text.replace(/([^\n])\n(\*\*[^\n*]+\*\*)/g, '$1\n\n$2');
+
+  // 3. 홀수 개의 ** → 마지막 닫히지 않은 ** 제거
+  const count = (text.match(/\*\*/g) || []).length;
+  if (count % 2 !== 0) {
+    const lastIdx = text.lastIndexOf('**');
+    text = text.slice(0, lastIdx) + text.slice(lastIdx + 2);
+  }
+
+  return text;
 }
 
 export async function renderMarkdown(text: string): Promise<string> {

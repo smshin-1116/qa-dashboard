@@ -33,6 +33,7 @@ export default function DashboardPage() {
 
   const [activeModel, setActiveModel] = useState<AIModel>('claude');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
   const [toolStatus, setToolStatus] = useState('');
 
@@ -104,6 +105,7 @@ export default function DashboardPage() {
       await addMessage({ role: 'user', content, attachments });
 
       setIsStreaming(true);
+      setStreamingSessionId(session.id);
       setStreamingContent('');
       setToolStatus('');
 
@@ -181,6 +183,7 @@ export default function DashboardPage() {
         // 스트리밍 버블 먼저 제거 후 메시지 저장 (중복 렌더 방지)
         flushSync(() => {
           setIsStreaming(false);
+          setStreamingSessionId(null);
           setStreamingContent('');
           setToolStatus('');
         });
@@ -189,6 +192,7 @@ export default function DashboardPage() {
         const msg = err instanceof Error ? err.message : '알 수 없는 오류';
         flushSync(() => {
           setIsStreaming(false);
+          setStreamingSessionId(null);
           setStreamingContent('');
           setToolStatus('');
         });
@@ -238,7 +242,7 @@ export default function DashboardPage() {
           <div className="flex flex-col flex-1 overflow-hidden">
             <ChatArea
               session={activeSession}
-              isStreaming={isStreaming}
+              isStreaming={isStreaming && streamingSessionId === activeSession?.id}
               streamingContent={streamingContent}
               toolStatus={toolStatus}
               hasTcResult={tcAvailable}
