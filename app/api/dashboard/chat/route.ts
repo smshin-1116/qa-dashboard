@@ -56,9 +56,14 @@ const ATLASSIAN_CLOUD_ID = process.env.CONFLUENCE_BASE_URL
   ? new URL(process.env.CONFLUENCE_BASE_URL).hostname
   : null;
 
+const GITHUB_REPO_BACKEND = process.env.GITHUB_REPO_BACKEND ?? null;
+const GITHUB_REPO_FRONTEND = process.env.GITHUB_REPO_FRONTEND ?? null;
+
 const QA_SYSTEM_PROMPT = `당신은 QA(품질보증) 전문 에이전트입니다.
 
 ## Atlassian 설정${ATLASSIAN_CLOUD_ID ? `\n- Jira/Confluence cloudId: ${ATLASSIAN_CLOUD_ID}\n- MCP Atlassian 도구 호출 시 cloudId는 항상 "${ATLASSIAN_CLOUD_ID}"를 사용합니다.` : ''}
+
+## GitHub 레포지토리${GITHUB_REPO_BACKEND ? `\n- 백엔드: ${GITHUB_REPO_BACKEND}` : ''}${GITHUB_REPO_FRONTEND ? `\n- 프론트엔드: ${GITHUB_REPO_FRONTEND}` : ''}${GITHUB_REPO_BACKEND || GITHUB_REPO_FRONTEND ? '\n- GitHub 코드 분석 시 위 레포를 기준으로 검색합니다.' : ''}
 
 ## 지원 업무
 - 테스트 케이스(TC) 작성 및 xlsx 형식 출력
