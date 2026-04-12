@@ -11,11 +11,12 @@ import ModelSwitchModal from '@/components/dashboard/ModelSwitchModal';
 import Toast from '@/components/dashboard/Toast';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { initModel, persistModel } from '@/constants/modelSupport';
+import { initAgentMode, persistAgentMode } from '@/constants/agentModes';
 import { downloadTcXlsx, hasTcResult } from '@/lib/tcExport';
 import { useMcpStatus } from '@/hooks/useMcpStatus';
 import { useToast } from '@/hooks/useToast';
 import { META_PREFIX, TOOL_PREFIX } from '@/constants/streamProtocol';
-import type { AIModel, Attachment } from '@/types/session';
+import type { AIModel, AgentMode, Attachment } from '@/types/session';
 
 export default function DashboardPage() {
   const {
@@ -32,6 +33,7 @@ export default function DashboardPage() {
   } = useSessionStore();
 
   const [activeModel, setActiveModel] = useState<AIModel>('claude');
+  const [activeAgentMode, setActiveAgentMode] = useState<AgentMode>('general');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
   const [streamingContent, setStreamingContent] = useState('');
@@ -57,6 +59,8 @@ export default function DashboardPage() {
     initialized.current = true;
     const model = initModel();
     setActiveModel(model);
+    const mode = initAgentMode();
+    setActiveAgentMode(mode);
     loadSessions();
   }, [loadSessions]);
 
@@ -82,6 +86,11 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeModel, activeSession]
   );
+
+  const handleAgentModeChange = useCallback((mode: AgentMode) => {
+    setActiveAgentMode(mode);
+    persistAgentMode(mode);
+  }, []);
 
   const applyModelChange = useCallback(
     async (model: AIModel) => {
@@ -118,6 +127,7 @@ export default function DashboardPage() {
             // 두 번째 메시지부터 --resume으로 이전 대화 이어서
             claudeSessionId: session.claudeSessionId,
             attachments,
+            agentMode: activeAgentMode,
           }),
         });
 
@@ -200,7 +210,7 @@ export default function DashboardPage() {
         addToast('error', msg);
       }
     },
-    [activeSession, activeModel, createSession, addMessage, updateClaudeSessionId, addToast]
+    [activeSession, activeModel, activeAgentMode, createSession, addMessage, updateClaudeSessionId, addToast]
   );
 
   const handleDownloadXlsx = useCallback(() => {
@@ -227,6 +237,8 @@ export default function DashboardPage() {
         <DashboardHeader
           activeModel={activeModel}
           onModelChange={handleModelChangeRequest}
+          activeAgentMode={activeAgentMode}
+          onAgentModeChange={handleAgentModeChange}
           mcpStatus={mcpStatus}
         />
 

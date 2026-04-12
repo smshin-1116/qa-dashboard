@@ -1,5 +1,7 @@
 export type AIModel = 'claude' | 'gemini' | 'codex';
 
+export type AgentMode = 'general' | 'designer' | 'writer' | 'reviewer' | 'fixer';
+
 export type MessageRole = 'user' | 'assistant';
 
 export interface Attachment {
