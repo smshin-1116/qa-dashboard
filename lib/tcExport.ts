@@ -75,7 +75,7 @@ function normalizeHeader(raw: string): keyof TcRow | null {
  * 어시스턴트 메시지에서 TC 테이블 데이터를 추출합니다.
  * 마크다운 테이블 및 JSON 배열 형식을 지원합니다.
  */
-function extractTcRows(content: string): TcRow[] {
+export function extractTcRows(content: string): TcRow[] {
   // JSON 배열 형식 탐지
   const jsonMatch = content.match(/```json\s*([\s\S]*?)```/);
   if (jsonMatch) {
