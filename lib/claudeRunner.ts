@@ -52,7 +52,6 @@ export function runClaude(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
       args.push('--resume', claudeSessionId);
     }
 
-    console.log('[claudeRunner] args:', JSON.stringify(args.slice(0, 8))); // 처음 8개만 로그 (시스템 프롬프트 제외)
     const { ANTHROPIC_API_KEY: _removed, ...cleanEnv } = process.env;
     const proc = spawn('claude', args, {
       env: cleanEnv,

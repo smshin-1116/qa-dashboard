@@ -325,8 +325,6 @@ export async function POST(req: NextRequest) {
       let lastTextLength = 0; // 부분 메시지 중복 방지용 커서
       let stdoutBuffer = '';
 
-      // claude를 찾을 수 없을 때를 대비해 which로 경로 확인
-      // ANTHROPIC_API_KEY를 제거해 Claude Code 자체 OAuth(구독) 인증 사용
       const { ANTHROPIC_API_KEY: _removed, ...cleanEnv } = process.env;
       const proc = spawn('claude', args, {
         env: cleanEnv,

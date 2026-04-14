@@ -27,7 +27,8 @@ async function getConnectedMcpServers(): Promise<Set<string>> {
     const { stdout } = await execFileAsync('claude', ['mcp', 'list'], { timeout: 10000 });
     const connected = new Set<string>();
     for (const line of stdout.split('\n')) {
-      if (line.includes('✓ Connected')) {
+      // '✓ Connected' 또는 '! Needs authentication' 모두 서버가 살아있는 상태로 처리
+      if (line.includes('✓ Connected') || line.includes('Needs authentication')) {
         const serverName = line.split(':')[0].trim().toLowerCase();
         connected.add(serverName);
       }

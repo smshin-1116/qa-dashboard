@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import type { Session } from '@/types/session';
 import type { AgentMode } from '@/types/session';
-import { extractTcRows } from '@/lib/tcExport';
+import { extractTcRows, type TcRow } from '@/lib/tcExport';
 import { analyzeTcQuality, type TcQualityResult, type CheckStatus } from '@/lib/tcQuality';
 import { useSessionStore } from '@/stores/useSessionStore';
 import type { PipelineEvent } from '@/app/api/pipeline/run/route';
@@ -27,13 +27,17 @@ type Tab = (typeof TABS)[number];
 export default function RightPanel({ session, mcpTools, activeAgentMode, onAgentModeChange }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('파이프라인');
 
-  const qualityResult = useMemo(() => {
-    if (!session) return null;
-    const allRows = session.messages
+  // 파이프라인 탭이 store 직접 addMessage하므로, 품질 계산도 store 직접 구독해야 실시간 반영됨
+  const storeSession = useSessionStore((state) => state.activeSession);
+
+  const { qualityResult, tcRows } = useMemo(() => {
+    const src = storeSession ?? session;
+    if (!src) return { qualityResult: null, tcRows: [] as TcRow[] };
+    const allRows = src.messages
       .filter((m) => m.role === 'assistant')
       .flatMap((m) => extractTcRows(m.content));
-    return analyzeTcQuality(allRows);
-  }, [session]);
+    return { qualityResult: analyzeTcQuality(allRows), tcRows: allRows };
+  }, [storeSession, session]);
 
   const hasTcData = !!qualityResult;
 
@@ -71,7 +75,7 @@ export default function RightPanel({ session, mcpTools, activeAgentMode, onAgent
             onAgentModeChange={onAgentModeChange}
           />
         )}
-        {activeTab === '품질' && <TcQualityTab result={qualityResult} />}
+        {activeTab === '품질' && <TcQualityTab result={qualityResult} tcRows={tcRows} />}
         {activeTab === 'MCP' && <McpTab mcpTools={mcpTools} />}
         {activeTab === '세션' && <SessionInfoTab session={session} />}
       </div>
@@ -429,7 +433,7 @@ function PipelineTab({
 
 // ─── TC 품질 탭 ──────────────────────────────────────────────────────────────
 
-function TcQualityTab({ result }: { result: TcQualityResult | null }) {
+function TcQualityTab({ result, tcRows }: { result: TcQualityResult | null; tcRows: TcRow[] }) {
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
@@ -439,6 +443,8 @@ function TcQualityTab({ result }: { result: TcQualityResult | null }) {
       </div>
     );
   }
+
+  // result가 있으면 아래 전체 렌더링
 
   const gradeColor: Record<string, string> = {
     A: '#34D399', B: '#60A5FA', C: '#FBBF24', D: '#F87171', F: '#EF4444',
@@ -537,6 +543,80 @@ function TcQualityTab({ result }: { result: TcQualityResult | null }) {
           <span className="text-base">✓</span>
           <span className="text-[12px] text-emerald-400 font-medium">이슈 없음 — 품질 기준 통과</span>
         </div>
+      )}
+
+      <SheetsExportSection rows={tcRows} />
+    </div>
+  );
+}
+
+// ─── Sheets 내보내기 섹션 ──────────────────────────────────────────────────────
+
+function SheetsExportSection({ rows }: { rows: TcRow[] }) {
+  const [sheetsUrl, setSheetsUrl] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+  const [resultSheetName, setResultSheetName] = useState('');
+  const [spreadsheetId, setSpreadsheetId] = useState('');
+
+  const handleExport = async () => {
+    if (!sheetsUrl.trim() || !rows.length) return;
+    setStatus('loading');
+    setMessage('');
+    try {
+      const res = await fetch('/api/sheets/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetsUrl: sheetsUrl.trim(), rows }),
+      });
+      const data = await res.json() as { error?: string; sheetName?: string; rowCount?: number; spreadsheetId?: string };
+      if (!res.ok) {
+        setStatus('error');
+        setMessage(data.error ?? '오류가 발생했습니다.');
+      } else {
+        setStatus('success');
+        setResultSheetName(data.sheetName ?? '');
+        setSpreadsheetId(data.spreadsheetId ?? '');
+        setMessage(`${data.rowCount}개 TC 업로드 완료`);
+      }
+    } catch {
+      setStatus('error');
+      setMessage('네트워크 오류가 발생했습니다.');
+    }
+  };
+
+  const sheetsLink = spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : '';
+
+  return (
+    <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
+      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Sheets 내보내기</p>
+      <input
+        type="text"
+        value={sheetsUrl}
+        onChange={(e) => setSheetsUrl(e.target.value)}
+        placeholder="Sheets URL 또는 ID 붙여넣기..."
+        disabled={status === 'loading'}
+        className="w-full bg-[#161B27] border border-[#2A3347] rounded-md px-2.5 py-1.5 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
+      />
+      <button
+        onClick={handleExport}
+        disabled={!sheetsUrl.trim() || !rows.length || status === 'loading'}
+        className="w-full py-1.5 rounded-md bg-emerald-700 text-[11px] font-semibold text-white hover:bg-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        {status === 'loading' ? '업로드 중...' : '↑ Sheets에 내보내기'}
+      </button>
+      {status === 'success' && (
+        <div className="mt-2 space-y-0.5">
+          <p className="text-[10px] text-emerald-400">✓ {message} — {resultSheetName}</p>
+          {sheetsLink && (
+            <a href={sheetsLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-400 hover:underline block">
+              Sheets에서 열기 →
+            </a>
+          )}
+        </div>
+      )}
+      {status === 'error' && (
+        <p className="text-[10px] text-red-400 mt-2 leading-snug">{message}</p>
       )}
     </div>
   );
