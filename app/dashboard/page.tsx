@@ -264,10 +264,17 @@ export default function DashboardPage() {
               activeModel={activeModel}
               onSend={handleSend}
               disabled={isStreaming}
+              activeAgentMode={activeAgentMode}
+              onAgentModeChange={handleAgentModeChange}
             />
           </div>
 
-          <RightPanel session={activeSession} mcpTools={mcpServers} />
+          <RightPanel
+            session={activeSession}
+            mcpTools={mcpServers}
+            activeAgentMode={activeAgentMode}
+            onAgentModeChange={handleAgentModeChange}
+          />
         </div>
       </div>
 

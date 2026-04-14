@@ -1,15 +1,20 @@
 'use client';
 
-import { useRef, useState, useCallback } from 'react';
-import type { Attachment } from '@/types/session';
+import { useRef, useState, useCallback, useMemo } from 'react';
+import type { Attachment, AgentMode } from '@/types/session';
 import type { AIModel } from '@/types/session';
 import { canUseMcp, MODEL_SUPPORT } from '@/constants/modelSupport';
+
+const CONFLUENCE_URL_RE = /https?:\/\/[a-zA-Z0-9-]+\.atlassian\.net\/wiki\/[^\s]+/;
+const JIRA_URL_RE = /https?:\/\/[a-zA-Z0-9-]+\.atlassian\.net\/browse\/([A-Z][A-Z0-9]+-\d+)/;
 
 interface ChatInputProps {
   activeModel: AIModel;
   onSend: (content: string, attachments: Attachment[]) => void;
   disabled?: boolean;
   hasMcpTool?: boolean;
+  activeAgentMode?: AgentMode;
+  onAgentModeChange?: (mode: AgentMode) => void;
 }
 
 /** 모델별 이미지 첨부 지원 여부 — 현재는 Claude만 지원 */
@@ -24,12 +29,24 @@ export default function ChatInput({
   onSend,
   disabled,
   hasMcpTool = false,
+  activeAgentMode: _activeAgentMode,
+  onAgentModeChange,
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [codeMode, setCodeMode] = useState(false);
   const [focused, setFocused] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  const detectedConfluenceUrl = useMemo(() => {
+    const match = value.match(CONFLUENCE_URL_RE);
+    return match ? match[0] : null;
+  }, [value]);
+
+  const detectedJira = useMemo(() => {
+    const match = value.match(JIRA_URL_RE);
+    return match ? { url: match[0], ticketId: match[1] } : null;
+  }, [value]);
   const dragCounterRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,6 +68,19 @@ export default function ChatInput({
     setCodeMode(false);
     textareaRef.current?.focus();
   }, [value, attachments, hasMcpTool, activeModel, onSend]);
+
+  const handleUrlAction = useCallback(
+    (url: string, mode: AgentMode, promptTemplate: (url: string) => string) => {
+      if (!url) return;
+      onAgentModeChange?.(mode);
+      onSend(promptTemplate(url), attachments);
+      setValue('');
+      setAttachments([]);
+      setCodeMode(false);
+      textareaRef.current?.focus();
+    },
+    [onAgentModeChange, onSend, attachments]
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -190,6 +220,109 @@ export default function ChatInput({
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Confluence 원클릭 워크플로우 배너 */}
+      {detectedConfluenceUrl && (
+        <div className="mb-2.5 bg-[#161B27] border border-indigo-800/50 rounded-lg px-3 py-2.5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+              Confluence 페이지 감지됨
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 truncate mb-2.5">{detectedConfluenceUrl}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() =>
+                handleUrlAction(
+                  detectedConfluenceUrl!,
+                  'designer',
+                  (url) =>
+                    `다음 Confluence 페이지를 분석하여 TC 설계 구조를 제안해주세요.\n\n${url}\n\n대/중/소분류 구조와 주요 테스트 관점(기능, 예외, 경계값 등)을 중심으로 분석해주세요.`
+                )
+              }
+              disabled={disabled}
+              className="flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md bg-emerald-900/30 border border-emerald-700/40 text-emerald-400 hover:bg-emerald-800/40 hover:border-emerald-600/60 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              TC 설계 분석
+            </button>
+            <button
+              onClick={() =>
+                handleUrlAction(
+                  detectedConfluenceUrl!,
+                  'writer',
+                  (url) =>
+                    `다음 Confluence 페이지를 분석하여 11컬럼 형식(TC-ID, 대분류, 중분류, 소분류, 검증단계, 전제조건, 테스트 스텝, 기대결과, 플랫폼, 결과, 비고)으로 TC를 생성해주세요.\n\n${url}`
+                )
+              }
+              disabled={disabled}
+              className="flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md bg-blue-900/30 border border-blue-700/40 text-blue-400 hover:bg-blue-800/40 hover:border-blue-600/60 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              TC 바로 생성
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={disabled}
+              className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-[#1E2535] border border-[#2A3347] text-slate-400 hover:text-slate-300 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              그냥 보내기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Jira 원클릭 워크플로우 배너 */}
+      {detectedJira && (
+        <div className="mb-2.5 bg-[#161B27] border border-amber-800/50 rounded-lg px-3 py-2.5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-400 uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Jira 티켓 감지됨
+            </span>
+            <span className="text-[10px] font-bold text-amber-300 bg-amber-900/30 border border-amber-700/40 rounded px-1.5 py-0.5">
+              {detectedJira.ticketId}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 truncate mb-2.5">{detectedJira.url}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() =>
+                handleUrlAction(
+                  detectedJira!.url,
+                  'writer',
+                  (url) =>
+                    `다음 Jira 티켓을 분석하여 11컬럼 형식(TC-ID, 대분류, 중분류, 소분류, 검증단계, 전제조건, 테스트 스텝, 기대결과, 플랫폼, 결과, 비고)으로 TC를 생성해주세요.\n\n${url}`
+                )
+              }
+              disabled={disabled}
+              className="flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md bg-blue-900/30 border border-blue-700/40 text-blue-400 hover:bg-blue-800/40 hover:border-blue-600/60 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              TC 생성
+            </button>
+            <button
+              onClick={() =>
+                handleUrlAction(
+                  detectedJira!.url,
+                  'reviewer',
+                  (url) =>
+                    `다음 Jira 버그 티켓을 분석해주세요.\n\n${url}\n\n1) 재현 스텝 정리 (환경·전제조건·스텝·기대결과·실제결과)\n2) 누락된 정보 체크리스트\n3) 심각도 및 우선순위 제안`
+                )
+              }
+              disabled={disabled}
+              className="flex-1 px-3 py-1.5 text-[12px] font-medium rounded-md bg-rose-900/30 border border-rose-700/40 text-rose-400 hover:bg-rose-800/40 hover:border-rose-600/60 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              버그 분석
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={disabled}
+              className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-[#1E2535] border border-[#2A3347] text-slate-400 hover:text-slate-300 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              그냥 보내기
+            </button>
+          </div>
         </div>
       )}
 
