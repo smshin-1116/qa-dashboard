@@ -322,7 +322,7 @@ export async function POST(req: NextRequest) {
       const enc = new TextEncoder();
       let claudeSessionId: string | null = null;
       let metaSent = false;
-      let lastTextLength = 0; // 부분 메시지 중복 방지용 커서
+      const lastTextLengths = new Map<number, number>(); // 블록 인덱스별 커서 (다중 텍스트 블록 대응)
       let stdoutBuffer = '';
 
       const { ANTHROPIC_API_KEY: _removed, ...cleanEnv } = process.env;
@@ -360,21 +360,22 @@ export async function POST(req: NextRequest) {
                 content?: Array<{ type: string; text?: string; name?: string }>;
               };
               if (msg?.content) {
-                for (const block of msg.content) {
+                msg.content.forEach((block, blockIdx) => {
                   // 도구 실행 이벤트 전송
                   if (block.type === 'tool_use' && typeof block.name === 'string') {
                     const label = getToolLabel(block.name);
                     controller.enqueue(enc.encode(`${TOOL_PREFIX}${label}\n`));
                   }
-                  // 텍스트 스트리밍
+                  // 텍스트 스트리밍 (블록별 독립 커서로 중복/누락 방지)
                   if (block.type === 'text' && typeof block.text === 'string') {
-                    const newText = block.text.slice(lastTextLength);
+                    const prev = lastTextLengths.get(blockIdx) ?? 0;
+                    const newText = block.text.slice(prev);
                     if (newText) {
                       controller.enqueue(enc.encode(newText));
-                      lastTextLength = block.text.length;
+                      lastTextLengths.set(blockIdx, block.text.length);
                     }
                   }
-                }
+                });
               }
             }
 

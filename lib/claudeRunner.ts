@@ -61,7 +61,7 @@ export function runClaude(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
 
     let fullContent = '';
     let resultSessionId: string | null = claudeSessionId ?? null;
-    let lastTextLength = 0;
+    const lastTextLengths = new Map<number, number>(); // 블록 인덱스별 커서 (다중 텍스트 블록 대응)
     let stdoutBuffer = '';
     let stderrBuffer = '';
 
@@ -84,19 +84,20 @@ export function runClaude(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
               content?: Array<{ type: string; text?: string; name?: string }>;
             };
             if (msg?.content) {
-              for (const block of msg.content) {
+              msg.content.forEach((block, blockIdx) => {
                 if (block.type === 'tool_use' && typeof block.name === 'string') {
                   onTool?.(getToolLabel(block.name));
                 }
                 if (block.type === 'text' && typeof block.text === 'string') {
-                  const newText = block.text.slice(lastTextLength);
+                  const prev = lastTextLengths.get(blockIdx) ?? 0;
+                  const newText = block.text.slice(prev);
                   if (newText) {
                     fullContent += newText;
                     onChunk?.(newText);
-                    lastTextLength = block.text.length;
+                    lastTextLengths.set(blockIdx, block.text.length);
                   }
                 }
-              }
+              });
             }
           }
 
