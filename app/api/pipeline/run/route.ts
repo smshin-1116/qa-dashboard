@@ -35,7 +35,7 @@ interface StageConfig {
   mode: AgentMode;
   label: string;
   emoji: string;
-  buildMessage: (confluenceUrl: string) => string;
+  buildMessage: (confluenceUrl: string, outputs: string[]) => string;
 }
 
 const STAGE_CONFIGS: StageConfig[] = [
@@ -50,22 +50,22 @@ const STAGE_CONFIGS: StageConfig[] = [
     mode: 'writer',
     label: 'TC 작성',
     emoji: '✏️',
-    buildMessage: () =>
-      `앞서 설계한 구조를 바탕으로 11컬럼 형식(TC-ID, 대분류, 중분류, 소분류, 검증단계, 전제조건, 테스트 스텝, 기대결과, 플랫폼, 결과, 비고)으로 TC를 생성해주세요.\n검증단계 부정+예외 합계 49~60%를 목표로 작성해주세요.`,
+    buildMessage: (_url, outputs) =>
+      `다음 TC 설계 구조를 바탕으로 11컬럼 형식(TC-ID, 대분류, 중분류, 소분류, 검증단계, 전제조건, 테스트 스텝, 기대결과, 플랫폼, 결과, 비고)으로 TC를 생성해주세요.\n검증단계 부정+예외 합계 49~60%를 목표로 작성해주세요.\n\n## TC 설계 구조\n${outputs[0]}`,
   },
   {
     mode: 'reviewer',
     label: 'QA 리뷰',
     emoji: '🔍',
-    buildMessage: () =>
-      `생성된 TC를 EVAL 기준으로 검토해주세요. 검증단계 분포, 추상적 표현 여부, 1TC=1검증포인트 준수를 중심으로 이슈를 도출하고 리뷰 보고서를 작성해주세요.`,
+    buildMessage: (_url, outputs) =>
+      `다음 TC를 EVAL 기준으로 검토해주세요. 검증단계 분포, 추상적 표현 여부, 1TC=1검증포인트 준수를 중심으로 이슈를 도출하고 리뷰 보고서를 작성해주세요.\n\n## TC 목록\n${outputs[1]}`,
   },
   {
     mode: 'fixer',
     label: 'TC 수정',
     emoji: '🔧',
-    buildMessage: () =>
-      `리뷰에서 발견된 이슈를 반영하여 TC를 수정해주세요. CRITICAL → HIGH → MEDIUM 순으로 처리하고, 수정된 TC 전체를 11컬럼 형식으로 최종 출력해주세요.`,
+    buildMessage: (_url, outputs) =>
+      `리뷰에서 발견된 이슈를 반영하여 TC를 수정해주세요. CRITICAL → HIGH → MEDIUM 순으로 처리하고, 수정된 TC 전체를 11컬럼 형식으로 최종 출력해주세요.\n\n## 원본 TC\n${outputs[1]}\n\n## 리뷰 보고서\n${outputs[2]}`,
   },
 ];
 
@@ -84,12 +84,11 @@ export type PipelineEvent =
 
 interface PipelineRequestBody {
   confluenceUrl: string;
-  claudeSessionId?: string;
 }
 
 export async function POST(req: NextRequest) {
   const body: PipelineRequestBody = await req.json();
-  const { confluenceUrl, claudeSessionId: initialSessionId } = body;
+  const { confluenceUrl } = body;
 
   if (!confluenceUrl?.trim()) {
     return new Response(JSON.stringify({ error: 'confluenceUrl이 필요합니다.' }), { status: 400 });
@@ -107,13 +106,13 @@ export async function POST(req: NextRequest) {
         }
       };
 
-      let currentSessionId: string | null = initialSessionId ?? null;
+      const stageOutputs: string[] = [];
 
       send({ type: 'start', totalStages: STAGE_CONFIGS.length });
 
       for (let i = 0; i < STAGE_CONFIGS.length; i++) {
         const stage = STAGE_CONFIGS[i];
-        const userMessage = stage.buildMessage(confluenceUrl);
+        const userMessage = stage.buildMessage(confluenceUrl, stageOutputs);
 
         send({
           type: 'stage_start',
@@ -127,12 +126,12 @@ export async function POST(req: NextRequest) {
           const result = await runClaude({
             message: userMessage,
             systemPrompt: SYSTEM_PROMPTS[stage.mode],
-            claudeSessionId: currentSessionId,
+            claudeSessionId: null, // 각 단계 독립 세션 — 이전 컨텍스트 누적 방지
             onChunk: (chunk) => send({ type: 'chunk', content: chunk }),
             onTool: (label) => send({ type: 'tool', label }),
           });
 
-          currentSessionId = result.claudeSessionId;
+          stageOutputs.push(result.content);
 
           send({
             type: 'stage_done',
@@ -140,7 +139,7 @@ export async function POST(req: NextRequest) {
             stage: stage.mode,
             content: result.content,
             userMessage,
-            claudeSessionId: currentSessionId,
+            claudeSessionId: result.claudeSessionId,
           });
         } catch (err) {
           send({
