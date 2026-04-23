@@ -45,6 +45,9 @@ export default function DashboardPage() {
   // R-02a: 모델 전환 확인 모달
   const [pendingModel, setPendingModel] = useState<AIModel | null>(null);
 
+  // 채팅 스트리밍 중단용 AbortController
+  const chatAbortRef = useRef<AbortController | null>(null);
+
   // MCP 상태 (R-06)
   const { servers: mcpServers, mcpStatus } = useMcpStatus();
 
@@ -118,6 +121,9 @@ export default function DashboardPage() {
       setStreamingContent('');
       setToolStatus('');
 
+      chatAbortRef.current = new AbortController();
+
+      let full = '';
       try {
         const res = await fetch('/api/dashboard/chat', {
           method: 'POST',
@@ -129,6 +135,7 @@ export default function DashboardPage() {
             attachments,
             agentMode: activeAgentMode,
           }),
+          signal: chatAbortRef.current.signal,
         });
 
         if (!res.ok || !res.body) {
@@ -137,7 +144,6 @@ export default function DashboardPage() {
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let full = '';
         // META 탐지용 버퍼 (첫 줄 파싱 전용, 이후 사용 안 함)
         let metaBuffer = '';
         let metaParsed = false;
@@ -199,6 +205,19 @@ export default function DashboardPage() {
         });
         await addMessage({ role: 'assistant', content: full });
       } catch (err) {
+        if ((err as Error).name === 'AbortError') {
+          // 사용자가 중단 — 지금까지 받은 내용을 저장하고 조용히 종료
+          flushSync(() => {
+            setIsStreaming(false);
+            setStreamingSessionId(null);
+            setStreamingContent('');
+            setToolStatus('');
+          });
+          if (full.trim()) {
+            await addMessage({ role: 'assistant', content: full });
+          }
+          return;
+        }
         const msg = err instanceof Error ? err.message : '알 수 없는 오류';
         flushSync(() => {
           setIsStreaming(false);
@@ -212,6 +231,10 @@ export default function DashboardPage() {
     },
     [activeSession, activeModel, activeAgentMode, createSession, addMessage, updateClaudeSessionId, addToast]
   );
+
+  const handleStop = useCallback(() => {
+    chatAbortRef.current?.abort();
+  }, []);
 
   const handleDownloadXlsx = useCallback(() => {
     if (!activeSession) return;
@@ -263,6 +286,8 @@ export default function DashboardPage() {
             <ChatInput
               activeModel={activeModel}
               onSend={handleSend}
+              onStop={handleStop}
+              isStreaming={isStreaming && streamingSessionId === activeSession?.id}
               disabled={isStreaming}
               activeAgentMode={activeAgentMode}
               onAgentModeChange={handleAgentModeChange}

@@ -11,6 +11,8 @@ const JIRA_URL_RE = /https?:\/\/[a-zA-Z0-9-]+\.atlassian\.net\/browse\/([A-Z][A-
 interface ChatInputProps {
   activeModel: AIModel;
   onSend: (content: string, attachments: Attachment[]) => void;
+  onStop?: () => void;
+  isStreaming?: boolean;
   disabled?: boolean;
   hasMcpTool?: boolean;
   activeAgentMode?: AgentMode;
@@ -27,6 +29,8 @@ let attachIdCounter = 0;
 export default function ChatInput({
   activeModel,
   onSend,
+  onStop,
+  isStreaming = false,
   disabled,
   hasMcpTool = false,
   activeAgentMode: _activeAgentMode,
@@ -422,14 +426,24 @@ export default function ChatInput({
           }}
         />
 
-        {/* Send button */}
-        <button
-          onClick={handleSend}
-          disabled={disabled || (!value.trim() && attachments.length === 0)}
-          className="flex-shrink-0 w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors pb-0.5 text-lg"
-        >
-          ↑
-        </button>
+        {/* Stop / Send button */}
+        {isStreaming ? (
+          <button
+            onClick={onStop}
+            className="flex-shrink-0 w-9 h-9 rounded-lg bg-rose-600 flex items-center justify-center text-white hover:bg-rose-500 transition-colors"
+            title="생성 중단"
+          >
+            <span className="w-3.5 h-3.5 rounded-sm bg-white" />
+          </button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={disabled || (!value.trim() && attachments.length === 0)}
+            className="flex-shrink-0 w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors pb-0.5 text-lg"
+          >
+            ↑
+          </button>
+        )}
       </div>
 
       <p className="text-[11px] text-slate-600 mt-2 text-center">
