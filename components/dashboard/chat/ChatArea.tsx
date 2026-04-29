@@ -70,7 +70,7 @@ export default function ChatArea({
         )}
 
         {/* 스트리밍 중인 응답 */}
-        {isStreaming && streamingContent && (
+        {isStreaming && streamingContent.trim() && (
           <MessageBubble
             message={{
               id: '__streaming__',
@@ -84,7 +84,7 @@ export default function ChatArea({
 
         {/* 작업 상태 표시 */}
         {isStreaming && (
-          <WorkingStatus toolStatus={toolStatus} hasContent={!!streamingContent} />
+          <WorkingStatus toolStatus={toolStatus} hasContent={!!streamingContent.trim()} />
         )}
 
         <div ref={bottomRef} />

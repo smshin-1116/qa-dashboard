@@ -19,9 +19,11 @@ export default function MessageBubble({ message, isStreaming }: MessageBubblePro
       setHtmlContent(escapeHtml(message.content));
       return;
     }
+    let cancelled = false;
     renderMarkdown(message.content).then((html) => {
-      setHtmlContent(html);
+      if (!cancelled) setHtmlContent(html);
     });
+    return () => { cancelled = true; };
   }, [message.content, isUser]);
 
   // 복사 버튼 클릭 위임 처리
@@ -89,7 +91,7 @@ export default function MessageBubble({ message, isStreaming }: MessageBubblePro
           <div
             ref={containerRef}
             className="md-prose max-w-none"
-            dangerouslySetInnerHTML={{ __html: htmlContent || escapeHtml(message.content) }}
+            dangerouslySetInnerHTML={{ __html: htmlContent || escapeHtml(message.content).replace(/\n/g, '<br>') }}
           />
         )}
 

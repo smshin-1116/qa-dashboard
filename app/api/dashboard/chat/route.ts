@@ -323,6 +323,7 @@ export async function POST(req: NextRequest) {
       let claudeSessionId: string | null = null;
       let metaSent = false;
       const lastTextLengths = new Map<number, number>(); // 블록 인덱스별 커서 (다중 텍스트 블록 대응)
+      let currentMsgId: string | null = null; // tool 사용 후 새 assistant 메시지 감지용
       let stdoutBuffer = '';
 
       const { ANTHROPIC_API_KEY: _removed, ...cleanEnv } = process.env;
@@ -354,11 +355,24 @@ export async function POST(req: NextRequest) {
               metaSent = true;
             }
 
+            // tool 결과(user 이벤트)가 오면 다음 assistant 턴이 새 메시지이므로 커서 초기화
+            if (event.type === 'user') {
+              lastTextLengths.clear();
+              currentMsgId = null;
+            }
+
             // assistant 텍스트 스트리밍 (누적 텍스트에서 새 부분만 전송)
             if (event.type === 'assistant') {
               const msg = event.message as {
+                id?: string;
                 content?: Array<{ type: string; text?: string; name?: string }>;
               };
+              // tool 사용 후 새 assistant 메시지가 시작되면 블록 커서를 초기화
+              // (새 메시지는 블록 0부터 다시 시작하므로 이전 커서로 slice하면 텍스트가 누락됨)
+              if (typeof msg?.id === 'string' && msg.id !== currentMsgId) {
+                currentMsgId = msg.id;
+                lastTextLengths.clear();
+              }
               if (msg?.content) {
                 msg.content.forEach((block, blockIdx) => {
                   // 도구 실행 이벤트 전송
@@ -369,7 +383,9 @@ export async function POST(req: NextRequest) {
                   // 텍스트 스트리밍 (블록별 독립 커서로 중복/누락 방지)
                   if (block.type === 'text' && typeof block.text === 'string') {
                     const prev = lastTextLengths.get(blockIdx) ?? 0;
-                    const newText = block.text.slice(prev);
+                    // 텍스트가 이전 커서보다 짧으면 새 메시지 턴 — 커서 초기화 (fallback)
+                    const effectivePrev = block.text.length < prev ? 0 : prev;
+                    const newText = block.text.slice(effectivePrev);
                     if (newText) {
                       controller.enqueue(enc.encode(newText));
                       lastTextLengths.set(blockIdx, block.text.length);

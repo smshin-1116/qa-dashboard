@@ -185,13 +185,16 @@ export default function DashboardPage() {
             full += chunk;
           }
 
-          // TOOL 라인 추출 및 제거
+          // TOOL 라인 추출 및 제거 (앞 \n 포함 제거 후 \n\n으로 대체해 텍스트 블록 경계 보존)
           const toolLineRegex = new RegExp(`${TOOL_PREFIX.replace(':', '\\:')}([^\n]+)\n`, 'g');
           let toolMatch: RegExpExecArray | null;
           while ((toolMatch = toolLineRegex.exec(full)) !== null) {
             setToolStatus(toolMatch[1]);
           }
-          full = full.replace(new RegExp(`${TOOL_PREFIX.replace(':', '\\:')}[^\n]*\n`, 'g'), '');
+          full = full.replace(
+            new RegExp(`\\n?${TOOL_PREFIX.replace(':', '\\:')}[^\\n]*\\n`, 'g'),
+            '\n\n',
+          );
 
           setStreamingContent(full);
         }
@@ -203,7 +206,11 @@ export default function DashboardPage() {
           setStreamingContent('');
           setToolStatus('');
         });
-        await addMessage({ role: 'assistant', content: full });
+        if (full.trim()) {
+          await addMessage({ role: 'assistant', content: full });
+        } else {
+          addToast('error', '응답을 받지 못했습니다. 다시 시도해주세요.');
+        }
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           // 사용자가 중단 — 지금까지 받은 내용을 저장하고 조용히 종료
