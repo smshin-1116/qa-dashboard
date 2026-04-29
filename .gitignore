@@ -427,3 +427,20 @@ FodyWeavers.xsd
 *.msm
 *.msp
 tc-uploader-*.json
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
+
+# Claude가 생성한 일회성 스크립트
+scripts/
+
+# Playwright 테스트 결과물
+.playwright-mcp/
+*.png
+
+# 바이너리 산출물
+*.pptx
