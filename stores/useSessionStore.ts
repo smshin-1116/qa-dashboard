@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { Session, ChatMessage, AIModel, Attachment } from '@/types/session';
+import type { Session, ChatMessage, AIModel, Attachment, WorkspaceKind } from '@/types/session';
 import {
   getAllSessions,
   getSession,
@@ -27,18 +27,25 @@ function dropDraftIfEmpty(sessions: Session[], candidate: Session | null): Sessi
   return sessions.filter((s) => s.id !== candidate.id);
 }
 
+/** 레거시 세션(kind 미지정)의 기본 워크스페이스 — 앱 본래 정체성인 TC 자동화로 귀속 */
+const LEGACY_KIND: WorkspaceKind = 'tc';
+
 interface SessionStore {
-  /** 사이드바에 표시할 세션 목록 */
+  /** 모든 워크스페이스의 세션 목록 (사이드바는 activeKind로 필터해서 표시) */
   sessions: Session[];
   /** 현재 활성 세션 */
   activeSession: Session | null;
+  /** 현재 보고 있는 워크스페이스(화면) */
+  activeKind: WorkspaceKind;
   /** IndexedDB 로드 완료 여부 */
   isLoaded: boolean;
 
   // 초기화
   loadSessions: () => Promise<void>;
+  /** 워크스페이스 전환 — 해당 kind의 최신 세션을 활성화 (없으면 null) */
+  setActiveKind: (kind: WorkspaceKind) => Promise<void>;
   // 세션 CRUD
-  createSession: (model: AIModel) => Promise<Session>;
+  createSession: (model: AIModel, kind?: WorkspaceKind) => Promise<Session>;
   selectSession: (id: string) => Promise<void>;
   removeSession: (id: string) => Promise<void>;
   // 메시지 관리
@@ -56,6 +63,7 @@ interface SessionStore {
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   activeSession: null,
+  activeKind: LEGACY_KIND,
   isLoaded: false,
 
   loadSessions: async () => {
@@ -66,17 +74,40 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (orphanIds.length > 0) {
       await Promise.all(orphanIds.map((id) => deleteSession(id)));
     }
+    // 레거시 마이그레이션: kind 없는 세션은 기본 워크스페이스로 귀속하고 DB에 반영
     const sessions = all.filter((s) => s.messages.length > 0);
-    const activeSession = sessions[0] ?? null;
-    // 가장 최근 세션이 있으면 full 데이터 로드
-    const loaded = activeSession ? await getSession(activeSession.id) ?? activeSession : null;
-    set({ sessions, activeSession: loaded, isLoaded: true });
+    const needMigration = sessions.filter((s) => !s.kind);
+    if (needMigration.length > 0) {
+      await Promise.all(
+        needMigration.map((s) => {
+          s.kind = LEGACY_KIND;
+          return saveSession(s);
+        }),
+      );
+    }
+    // 활성 세션은 setActiveKind에서 화면별로 선택하므로 여기선 비워둔다
+    set({ sessions, activeSession: null, isLoaded: true });
   },
 
-  createSession: async (model) => {
+  setActiveKind: async (kind) => {
+    const { sessions, activeSession } = get();
+    // 이전 active가 빈 draft였다면 화면 전환 시 제거
+    const cleaned = dropDraftIfEmpty(sessions, activeSession);
+    // 현재 active가 이미 이 kind면 유지, 아니면 해당 kind 최신 세션 선택
+    if (activeSession && activeSession.kind === kind && activeSession.messages.length > 0) {
+      set({ sessions: cleaned, activeKind: kind });
+      return;
+    }
+    const newest = cleaned.find((s) => s.kind === kind) ?? null; // getAllSessions가 updatedAt desc 정렬
+    const loaded = newest ? (await getSession(newest.id)) ?? newest : null;
+    set({ sessions: cleaned, activeKind: kind, activeSession: loaded });
+  },
+
+  createSession: async (model, kind) => {
     const now = Date.now();
     const session: Session = {
       id: generateId(),
+      kind: kind ?? get().activeKind,
       title: '새 대화',
       model,
       messages: [],

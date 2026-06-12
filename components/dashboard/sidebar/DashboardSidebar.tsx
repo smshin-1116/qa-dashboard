@@ -14,6 +14,8 @@ interface DashboardSidebarProps {
   onDeleteSession: (id: string) => void;
   onTogglePin: (id: string) => void;
   onRenameSession: (id: string, customTitle: string) => void;
+  /** 사이드바 헤더 라벨 (워크스페이스별) — 기본 "대화 목록" */
+  label?: string;
 }
 
 type GroupKey = 'pinned' | 'today' | 'yesterday' | 'lastWeek' | 'older';
@@ -93,6 +95,7 @@ export default function DashboardSidebar({
   onDeleteSession,
   onTogglePin,
   onRenameSession,
+  label = '대화 목록',
 }: DashboardSidebarProps) {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -133,7 +136,7 @@ export default function DashboardSidebar({
     <aside className="w-[236px] bg-[#161B27] border-r border-[#1E2535] flex flex-col flex-shrink-0">
       <div className="px-4 py-[14px] border-b border-[#1E2535] flex items-center justify-between">
         <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
-          대화 목록
+          {label}
         </span>
         <button
           onClick={onNewSession}

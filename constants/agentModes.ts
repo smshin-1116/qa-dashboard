@@ -44,12 +44,28 @@ export const AGENT_MODES: Record<AgentMode, AgentModeInfo> = {
 
 export const AGENT_MODE_KEYS = Object.keys(AGENT_MODES) as AgentMode[];
 
-export function initAgentMode(): AgentMode {
-  if (typeof window === 'undefined') return 'general';
-  const stored = localStorage.getItem('qa-agent-mode') as AgentMode | null;
-  return stored && stored in AGENT_MODES ? stored : 'general';
+/** 워크스페이스별로 에이전트 모드를 따로 기억하기 위한 localStorage 키 */
+function modeKey(workspaceKey?: string): string {
+  return workspaceKey ? `qa-agent-mode-${workspaceKey}` : 'qa-agent-mode';
 }
 
-export function persistAgentMode(mode: AgentMode): void {
-  localStorage.setItem('qa-agent-mode', mode);
+/**
+ * 저장된 에이전트 모드를 읽되, `allowed`가 주어지면 그 안의 값만 인정하고
+ * 아니면 `fallback`(기본 모드)으로 복귀한다.
+ */
+export function initAgentMode(
+  workspaceKey?: string,
+  allowed?: AgentMode[],
+  fallback: AgentMode = 'general',
+): AgentMode {
+  if (typeof window === 'undefined') return fallback;
+  const stored = localStorage.getItem(modeKey(workspaceKey)) as AgentMode | null;
+  if (stored && stored in AGENT_MODES && (!allowed || allowed.includes(stored))) {
+    return stored;
+  }
+  return fallback;
+}
+
+export function persistAgentMode(mode: AgentMode, workspaceKey?: string): void {
+  localStorage.setItem(modeKey(workspaceKey), mode);
 }
