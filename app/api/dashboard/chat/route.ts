@@ -52,6 +52,42 @@ function getToolLabel(toolName: string): string {
   );
 }
 
+/**
+ * claude CLI 서브프로세스의 exit code와 stderr를 보고 사용자용 한국어 메시지로 분류.
+ * 동시 사용 시 OAuth refresh token 회전으로 인한 인증 실패가 흔하므로 그 케이스를 우선 잡는다.
+ */
+function classifyClaudeError(code: number | null, stderr: string): string {
+  const trimmed = stderr.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (
+    lower.includes('401') ||
+    lower.includes('unauthorized') ||
+    lower.includes('invalid_grant') ||
+    lower.includes('refresh token') ||
+    lower.includes('not authenticated') ||
+    lower.includes('please run /login')
+  ) {
+    return '인증이 만료되었거나 다른 Claude Code 세션과 토큰이 충돌했습니다. 터미널에서 `claude` 로그인 상태를 확인하고 다시 시도해주세요.';
+  }
+  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('quota')) {
+    return '요청 한도(rate limit)에 도달했습니다. 잠시 후 다시 시도해주세요.';
+  }
+  if (lower.includes('session') && (lower.includes('not found') || lower.includes('no such') || lower.includes('does not exist'))) {
+    return '이전 대화 세션을 찾을 수 없습니다. 사이드바에서 새 대화를 시작해주세요.';
+  }
+  if (lower.includes('econnreset') || lower.includes('etimedout') || lower.includes('network')) {
+    return '네트워크 오류로 Claude 서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.';
+  }
+
+  if (trimmed) {
+    // 마지막 3줄만 노출 (스택트레이스 길이 컷)
+    const tail = trimmed.split('\n').slice(-3).join('\n');
+    return `Claude CLI 오류 (exit ${code ?? 'unknown'}): ${tail}`;
+  }
+  return `Claude CLI가 응답 없이 종료되었습니다 (exit ${code ?? 'unknown'}). 잠시 후 다시 시도해주세요.`;
+}
+
 const ATLASSIAN_CLOUD_ID = process.env.CONFLUENCE_BASE_URL
   ? new URL(process.env.CONFLUENCE_BASE_URL).hostname
   : null;
@@ -325,6 +361,8 @@ export async function POST(req: NextRequest) {
       const lastTextLengths = new Map<number, number>(); // 블록 인덱스별 커서 (다중 텍스트 블록 대응)
       let currentMsgId: string | null = null; // tool 사용 후 새 assistant 메시지 감지용
       let stdoutBuffer = '';
+      let stderrBuffer = '';
+      let textEmitted = false; // 한 번이라도 assistant 텍스트가 흘러갔는지
 
       const { ANTHROPIC_API_KEY: _removed, ...cleanEnv } = process.env;
       const proc = spawn('claude', args, {
@@ -388,6 +426,7 @@ export async function POST(req: NextRequest) {
                     const newText = block.text.slice(effectivePrev);
                     if (newText) {
                       controller.enqueue(enc.encode(newText));
+                      textEmitted = true;
                       lastTextLengths.set(blockIdx, block.text.length);
                     }
                   }
@@ -406,11 +445,17 @@ export async function POST(req: NextRequest) {
       });
 
       proc.stderr.on('data', (chunk: Buffer) => {
-        // stderr는 로그로만 기록
-        console.error('[claude subprocess]', chunk.toString().trim());
+        const text = chunk.toString();
+        stderrBuffer += text;
+        console.error('[claude subprocess]', text.trim());
       });
 
-      proc.on('close', () => {
+      proc.on('close', (code) => {
+        // exit code != 0 또는 텍스트가 한 번도 못 나갔으면 에러 사유를 스트림으로 노출
+        if (code !== 0 || !textEmitted) {
+          const msg = classifyClaudeError(code, stderrBuffer);
+          controller.enqueue(enc.encode(`\n\n[오류: ${msg}]`));
+        }
         controller.close();
       });
 
