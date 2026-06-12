@@ -50,3 +50,37 @@ export function persistModel(model: AIModel): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem('selectedModel', model);
 }
+
+/**
+ * claude CLI가 보고한 실제 모델 ID를 사람이 읽는 버전 라벨로 변환.
+ * 예) "claude-sonnet-4-6" → "Sonnet 4.6", "claude-opus-4-8[1m]" → "Opus 4.8"
+ * CLI 기본 모델이 업데이트되면 이 변환 결과도 자동으로 따라간다.
+ */
+export function formatClaudeModel(modelId: string | null | undefined): string | null {
+  if (!modelId) return null;
+  // 컨텍스트 마커([1m] 등)와 날짜 suffix(-20251001) 제거
+  const cleaned = modelId.replace(/\[[^\]]*\]/g, '').replace(/-\d{8}$/, '');
+  // 최신 형식: claude-<tier>-<major>-<minor>
+  const m = cleaned.match(/(opus|sonnet|haiku)-(\d+)-(\d+)/i);
+  if (m) {
+    const tier = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+    return `${tier} ${m[2]}.${m[3]}`;
+  }
+  // 알 수 없는 형식은 claude- 접두만 떼고 그대로 노출
+  const fallback = cleaned.replace(/^claude-/, '').trim();
+  return fallback || null;
+}
+
+const DETECTED_MODEL_KEY = 'detectedClaudeModel';
+
+/** 마지막으로 감지한 claude 실제 모델 ID를 localStorage에서 읽기 */
+export function readDetectedClaudeModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(DETECTED_MODEL_KEY);
+}
+
+/** 감지한 claude 실제 모델 ID를 localStorage에 저장 */
+export function persistDetectedClaudeModel(modelId: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(DETECTED_MODEL_KEY, modelId);
+}

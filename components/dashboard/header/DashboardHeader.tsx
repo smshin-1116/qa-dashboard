@@ -13,6 +13,8 @@ interface DashboardHeaderProps {
   activeAgentMode: AgentMode;
   onAgentModeChange: (mode: AgentMode) => void;
   mcpStatus: { figma: boolean; jira: boolean; git: boolean };
+  /** CLI가 보고한 실제 claude 버전 라벨 (예: "Sonnet 4.6"). 없으면 정적 기본값 사용 */
+  claudeVersion?: string | null;
 }
 
 export default function DashboardHeader({
@@ -21,6 +23,7 @@ export default function DashboardHeader({
   activeAgentMode,
   onAgentModeChange,
   mcpStatus,
+  claudeVersion,
 }: DashboardHeaderProps) {
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -183,7 +186,9 @@ export default function DashboardHeader({
                 }}
               />
               {info.label}
-              <span className="text-[9px] opacity-70 font-normal">{info.version}</span>
+              <span className="text-[9px] opacity-70 font-normal">
+                {model === 'claude' && claudeVersion ? claudeVersion : info.version}
+              </span>
             </button>
           );
         })}

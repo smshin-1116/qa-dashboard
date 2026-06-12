@@ -357,6 +357,7 @@ export async function POST(req: NextRequest) {
     start(controller) {
       const enc = new TextEncoder();
       let claudeSessionId: string | null = null;
+      let claudeModel: string | null = null; // CLI가 보고한 실제 모델 ID (init 이벤트)
       let metaSent = false;
       const lastTextLengths = new Map<number, number>(); // 블록 인덱스별 커서 (다중 텍스트 블록 대응)
       let currentMsgId: string | null = null; // tool 사용 후 새 assistant 메시지 감지용
@@ -386,9 +387,16 @@ export async function POST(req: NextRequest) {
               claudeSessionId = event.session_id;
             }
 
-            // 메타데이터를 스트림 첫 데이터로 전송
-            if (claudeSessionId && !metaSent) {
-              const meta = JSON.stringify({ claudeSessionId });
+            // 실제 모델 ID 추출 (system/init 이벤트의 model 필드)
+            if (typeof event.model === 'string' && !claudeModel) {
+              claudeModel = event.model;
+            }
+
+            // 메타데이터를 스트림 첫 데이터로 전송.
+            // model은 init 이벤트에서 함께 오므로 그때까지 기다리되,
+            // 혹시 assistant 텍스트가 먼저 오면 세션 ID라도 보내 resume이 끊기지 않게 한다.
+            if (claudeSessionId && !metaSent && (claudeModel || event.type === 'assistant')) {
+              const meta = JSON.stringify({ claudeSessionId, model: claudeModel });
               controller.enqueue(enc.encode(`${META_PREFIX}${meta}\n`));
               metaSent = true;
             }

@@ -10,7 +10,13 @@ import RightPanel from '@/components/dashboard/panel/RightPanel';
 import ModelSwitchModal from '@/components/dashboard/ModelSwitchModal';
 import Toast from '@/components/dashboard/Toast';
 import { useSessionStore } from '@/stores/useSessionStore';
-import { initModel, persistModel } from '@/constants/modelSupport';
+import {
+  initModel,
+  persistModel,
+  readDetectedClaudeModel,
+  persistDetectedClaudeModel,
+  formatClaudeModel,
+} from '@/constants/modelSupport';
 import { initAgentMode, persistAgentMode } from '@/constants/agentModes';
 import { downloadTcXlsx, hasTcResult } from '@/lib/tcExport';
 import { useMcpStatus } from '@/hooks/useMcpStatus';
@@ -35,6 +41,8 @@ export default function DashboardPage() {
   } = useSessionStore();
 
   const [activeModel, setActiveModel] = useState<AIModel>('claude');
+  // CLI가 보고한 실제 claude 모델 ID (예: claude-sonnet-4-6) — 헤더 버전 라벨에 사용
+  const [detectedClaudeModel, setDetectedClaudeModel] = useState<string | null>(null);
   const [activeAgentMode, setActiveAgentMode] = useState<AgentMode>('general');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
@@ -64,6 +72,7 @@ export default function DashboardPage() {
     initialized.current = true;
     const model = initModel();
     setActiveModel(model);
+    setDetectedClaudeModel(readDetectedClaudeModel());
     const mode = initAgentMode();
     setActiveAgentMode(mode);
     loadSessions();
@@ -171,8 +180,14 @@ export default function DashboardPage() {
                 try {
                   const meta = JSON.parse(firstLine.slice(META_PREFIX.length)) as {
                     claudeSessionId: string;
+                    model?: string | null;
                   };
                   await updateClaudeSessionId(meta.claudeSessionId);
+                  // CLI가 보고한 실제 모델 ID 기억 (헤더 버전 라벨 + 새로고침 유지)
+                  if (meta.model) {
+                    setDetectedClaudeModel(meta.model);
+                    persistDetectedClaudeModel(meta.model);
+                  }
                 } catch {
                   // 메타 파싱 실패 무시
                 }
@@ -272,6 +287,7 @@ export default function DashboardPage() {
           activeAgentMode={activeAgentMode}
           onAgentModeChange={handleAgentModeChange}
           mcpStatus={mcpStatus}
+          claudeVersion={formatClaudeModel(detectedClaudeModel)}
         />
 
         <div className="flex flex-1 overflow-hidden">
