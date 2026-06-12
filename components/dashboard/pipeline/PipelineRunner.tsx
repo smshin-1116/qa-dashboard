@@ -212,8 +212,9 @@ export default function PipelineRunner({
         <input
           type="text"
           value={confluenceUrl}
+          // onChange만으로 붙여넣기까지 처리됨. 과거 onPaste를 함께 두면
+          // 기본 붙여넣기 + state 세팅이 겹쳐 값이 중복 입력되는 버그가 있었음.
           onChange={(e) => setConfluenceUrl(e.target.value)}
-          onPaste={(e) => setConfluenceUrl(e.clipboardData.getData('text'))}
           placeholder="Confluence URL 붙여넣기..."
           disabled={isRunning}
           className="w-full bg-[#161B27] border border-[#2A3347] rounded-md px-2.5 py-1.5 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
