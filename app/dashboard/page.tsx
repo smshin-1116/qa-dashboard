@@ -30,6 +30,8 @@ export default function DashboardPage() {
     addMessage,
     changeModel,
     updateClaudeSessionId,
+    togglePin,
+    renameSession,
   } = useSessionStore();
 
   const [activeModel, setActiveModel] = useState<AIModel>('claude');
@@ -279,6 +281,8 @@ export default function DashboardPage() {
             onSelectSession={selectSession}
             onNewSession={handleNewSession}
             onDeleteSession={removeSession}
+            onTogglePin={togglePin}
+            onRenameSession={renameSession}
           />
 
           <div className="flex flex-col flex-1 overflow-hidden">
@@ -291,6 +295,7 @@ export default function DashboardPage() {
               onDownloadXlsx={handleDownloadXlsx}
             />
             <ChatInput
+              key={activeSession?.id ?? 'none'}
               activeModel={activeModel}
               onSend={handleSend}
               onStop={handleStop}
