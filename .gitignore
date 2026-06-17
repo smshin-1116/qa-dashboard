@@ -435,9 +435,6 @@ tc-uploader-*.json
 # TypeScript build cache
 tsconfig.tsbuildinfo
 
-# Claude가 생성한 일회성 스크립트
-scripts/
-
 # Playwright 테스트 결과물
 .playwright-mcp/
 *.png
