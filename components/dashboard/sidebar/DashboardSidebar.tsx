@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { format, isToday, isYesterday, differenceInCalendarDays } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import type { Session, AIModel } from '@/types/session';
@@ -223,6 +224,17 @@ export default function DashboardSidebar({
           </section>
         ))}
       </div>
+
+      {/* 포트폴리오 링크 */}
+      <Link
+        href="/portfolio"
+        target="_blank"
+        className="mx-2 mb-2 px-3 py-2.5 rounded-lg border border-[#1E2535] bg-[#0E1320] flex items-center gap-2 text-[12px] text-slate-400 hover:border-indigo-500/40 hover:text-indigo-300 transition-colors"
+      >
+        <span className="text-[13px]">📄</span>
+        <span className="font-medium">포트폴리오</span>
+        <span className="ml-auto text-[11px] text-slate-600">↗</span>
+      </Link>
     </aside>
   );
 }
