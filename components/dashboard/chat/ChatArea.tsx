@@ -61,33 +61,35 @@ export default function ChatArea({
         )}
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
-        {!session || session.messages.length === 0 ? (
-          <EmptyState />
-        ) : (
-          session.messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
-        )}
+      {/* Messages — 중앙 정렬 단일 컬럼 (Claude 앱 레퍼런스) */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl min-h-full px-4 sm:px-8 py-6 flex flex-col gap-7">
+          {!session || session.messages.length === 0 ? (
+            <EmptyState />
+          ) : (
+            session.messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
+          )}
 
-        {/* 스트리밍 중인 응답 */}
-        {isStreaming && streamingContent.trim() && (
-          <MessageBubble
-            message={{
-              id: '__streaming__',
-              role: 'assistant',
-              content: streamingContent,
-              createdAt: Date.now(),
-            }}
-            isStreaming
-          />
-        )}
+          {/* 스트리밍 중인 응답 */}
+          {isStreaming && streamingContent.trim() && (
+            <MessageBubble
+              message={{
+                id: '__streaming__',
+                role: 'assistant',
+                content: streamingContent,
+                createdAt: Date.now(),
+              }}
+              isStreaming
+            />
+          )}
 
-        {/* 작업 상태 표시 */}
-        {isStreaming && (
-          <WorkingStatus toolStatus={toolStatus} hasContent={!!streamingContent.trim()} />
-        )}
+          {/* 작업 상태 표시 */}
+          {isStreaming && (
+            <WorkingStatus toolStatus={toolStatus} hasContent={!!streamingContent.trim()} />
+          )}
 
-        <div ref={bottomRef} />
+          <div ref={bottomRef} />
+        </div>
       </div>
     </div>
   );
@@ -98,29 +100,22 @@ function WorkingStatus({ toolStatus, hasContent }: { toolStatus: string; hasCont
   if (hasContent && !toolStatus) return null;
 
   return (
-    <div className="flex items-center gap-3 px-1">
-      {/* 봇 아바타 자리 */}
-      <div className="w-8 h-8 rounded-full flex-shrink-0 bg-[#1E2535] border border-[#2A3347] flex items-center justify-center text-sm">
-        🤖
+    <div className="flex items-center gap-2.5">
+      {/* 도트 애니메이션 */}
+      <div className="flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:0ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]" />
       </div>
 
-      <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-[#161B27] border border-[#1E2535]">
-        {/* 도트 애니메이션 */}
-        <div className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:0ms]" />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]" />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]" />
-        </div>
-
-        {toolStatus ? (
-          <span className="text-[13px] text-slate-400">
-            <span className="text-indigo-400 font-medium">{toolStatus}</span>
-            <span className="text-slate-600"> 중...</span>
-          </span>
-        ) : (
-          <span className="text-[13px] text-slate-500">생각 중...</span>
-        )}
-      </div>
+      {toolStatus ? (
+        <span className="text-[13px] text-slate-400">
+          <span className="text-indigo-400 font-medium">{toolStatus}</span>
+          <span className="text-slate-600"> 중...</span>
+        </span>
+      ) : (
+        <span className="text-[13px] text-slate-500">생각 중...</span>
+      )}
     </div>
   );
 }

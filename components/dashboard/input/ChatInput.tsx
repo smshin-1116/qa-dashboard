@@ -195,7 +195,7 @@ export default function ChatInput({
 
   return (
     <div
-      className="px-6 pb-[18px] pt-[14px] bg-[#0F1117] border-t border-[#1E2535] flex-shrink-0 relative"
+      className="px-4 sm:px-8 pb-[18px] pt-[14px] bg-[#0F1117] border-t border-[#1E2535] flex-shrink-0 relative"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -206,6 +206,8 @@ export default function ChatInput({
           <span className="text-indigo-300 text-[14px] font-medium">파일을 여기에 놓으세요</span>
         </div>
       )}
+      {/* 본문과 동일한 중앙 컬럼 폭으로 정렬 */}
+      <div className="mx-auto w-full max-w-5xl">
       {/* 첨부파일 미리보기 */}
       {attachments.length > 0 && (
         <div className="flex gap-2 flex-wrap mb-2.5">
@@ -447,8 +449,9 @@ export default function ChatInput({
       </div>
 
       <p className="text-[11px] text-slate-600 mt-2 text-center">
-        Enter로 전송 · Shift+Enter 줄바꿈 · 파일/이미지/코드 첨부 가능 · 드래그 앤 드롭 지원
+        Enter 전송 · Shift+Enter 줄바꿈
       </p>
+      </div>
     </div>
   );
 }

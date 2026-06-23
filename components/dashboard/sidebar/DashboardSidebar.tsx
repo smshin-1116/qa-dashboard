@@ -6,6 +6,7 @@ import { format, isToday, isYesterday, differenceInCalendarDays } from 'date-fns
 import { ko } from 'date-fns/locale';
 import type { Session, AIModel } from '@/types/session';
 import { MODEL_SUPPORT } from '@/constants/modelSupport';
+import { useSidebarWidth } from '@/hooks/useSidebarWidth';
 
 interface DashboardSidebarProps {
   sessions: Session[];
@@ -101,6 +102,8 @@ export default function DashboardSidebar({
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  // 사이드바 너비 조절 (드래그 + localStorage 영속화)
+  const { width, isResizing, startResize } = useSidebarWidth();
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 180);
@@ -134,7 +137,10 @@ export default function DashboardSidebar({
   const totalHits = groups.reduce((sum, g) => sum + g.sessions.length, 0);
 
   return (
-    <aside className="w-[236px] bg-[#161B27] border-r border-[#1E2535] flex flex-col flex-shrink-0">
+    <aside
+      style={{ width }}
+      className="relative bg-[#161B27] border-r border-[#1E2535] flex flex-col flex-shrink-0"
+    >
       <div className="px-4 py-[14px] border-b border-[#1E2535] flex items-center justify-between">
         <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
           {label}
@@ -235,6 +241,20 @@ export default function DashboardSidebar({
         <span className="font-medium">포트폴리오</span>
         <span className="ml-auto text-[11px] text-slate-600">↗</span>
       </Link>
+
+      {/* 리사이즈 핸들 — 오른쪽 경계를 드래그해 너비 조절 */}
+      <div
+        onMouseDown={startResize}
+        title="드래그하여 너비 조절"
+        className={[
+          'absolute top-0 -right-1 z-20 h-full w-2 cursor-col-resize',
+          // 가운데 1px 라인을 hover/드래그 시 강조
+          'after:absolute after:top-0 after:left-1/2 after:h-full after:w-px after:-translate-x-1/2 after:transition-colors',
+          isResizing
+            ? 'after:bg-indigo-500'
+            : 'after:bg-transparent hover:after:bg-indigo-500/50',
+        ].join(' ')}
+      />
     </aside>
   );
 }

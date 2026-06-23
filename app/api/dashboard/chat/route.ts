@@ -100,6 +100,11 @@ const BASE_CONTEXT = `
 
 ## GitHub 레포지토리${GITHUB_REPO_BACKEND ? `\n- 백엔드: ${GITHUB_REPO_BACKEND}` : ''}${GITHUB_REPO_FRONTEND ? `\n- 프론트엔드: ${GITHUB_REPO_FRONTEND}` : ''}${GITHUB_REPO_BACKEND || GITHUB_REPO_FRONTEND ? '\n- GitHub 코드 분석 시 위 레포를 기준으로 검색합니다.' : ''}
 
+## 출력 환경 (중요)
+- 당신의 응답은 **터미널이 아니라 웹 UI**에 렌더링됩니다. 마크다운 표는 가로 스크롤로 폭 제한 없이 정상 표시됩니다.
+- 표의 컬럼 수나 너비가 많더라도 **절대 생략·축약하지 말고 전체 마크다운 표를 그대로 출력**하세요.
+- "표가 너무 넓다", "터미널에서 렌더링이 깨진다" 같은 안내 문구를 출력하지 마세요. 그런 제약은 없습니다.
+
 모든 응답은 한국어로 작성합니다.`;
 
 const TC_TABLE_FORMAT = `## TC 출력 형식 (마크다운 테이블, 반드시 준수)
@@ -367,7 +372,8 @@ export async function POST(req: NextRequest) {
 
       const { ANTHROPIC_API_KEY: _removed, ...cleanEnv } = process.env;
       const proc = spawn('claude', args, {
-        env: cleanEnv,
+        // stdout이 TTY가 아니라 너비 추정이 흔들림 → 넓게 고정해 표 폭 경고/축약 방지
+        env: { ...cleanEnv, COLUMNS: '200' },
         cwd: process.cwd(),
         stdio: ['ignore', 'pipe', 'pipe'], // stdin을 /dev/null로 처리
       });
