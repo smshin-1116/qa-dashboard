@@ -20,8 +20,9 @@ export type PanelTab = '파이프라인' | '품질' | 'MCP' | '세션';
  * 화면 레이아웃 형태.
  * - 'chat'     : 채팅 중앙 + 우측 탭 패널(panelTabs)  — 기능 분석
  * - 'pipeline' : 중앙 상단 파이프라인 실행기 + 하단 채팅, 우측 품질 리포트 고정 — TC 자동화
+ * - 'tool'     : 채팅/세션 없는 폼 기반 단독 툴 화면 (WorkspaceView 미사용) — 인수증 생성
  */
-export type WorkspaceLayout = 'chat' | 'pipeline';
+export type WorkspaceLayout = 'chat' | 'pipeline' | 'tool';
 
 export interface WorkspaceConfig {
   key: WorkspaceKind;
@@ -69,6 +70,18 @@ export const WORKSPACES: WorkspaceConfig[] = [
     defaultAgentMode: 'general',
     agentModes: ['general'],
     panelTabs: ['MCP', '세션'],
+  },
+  {
+    key: 'receipt',
+    path: '/dashboard/receipt',
+    label: '인수증 생성',
+    icon: '🧾',
+    sidebarLabel: '인수증 생성',
+    description: '배차확정 데이터로 SAP 거래명세서 페이로드를 합성해 인수증을 생성하는 툴',
+    layout: 'tool',
+    defaultAgentMode: 'general',
+    agentModes: ['general'],
+    panelTabs: [],
   },
 ];
 

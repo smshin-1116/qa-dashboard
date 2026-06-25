@@ -3,7 +3,7 @@ export type AIModel = 'claude' | 'gemini' | 'codex';
 export type AgentMode = 'general' | 'designer' | 'writer' | 'reviewer' | 'fixer';
 
 /** 워크스페이스(화면) 종류 — 세션을 화면별로 분리하는 키. 탭 추가 시 여기에 확장 */
-export type WorkspaceKind = 'tc' | 'analyze';
+export type WorkspaceKind = 'tc' | 'analyze' | 'receipt';
 
 export type MessageRole = 'user' | 'assistant';
 
