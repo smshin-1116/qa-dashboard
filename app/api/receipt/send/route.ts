@@ -22,10 +22,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildSapReceiptPayload } from '@/lib/receipt/payloadBuilder';
 import { precheck } from '@/lib/receipt/matchPrecheck';
+import { coerceToOrderInputs } from '@/lib/receipt/orderAdapter';
+import type { DriverAssignment } from '@/lib/receipt/orderAdapter';
 import type { BuildOptions, OrderInput } from '@/lib/receipt/types';
 
 interface SendRequestBody {
-  orders: OrderInput[];
+  /** 이미 OrderInput[] 로 가공된 주문 (구버전/직접 호출 호환) */
+  orders?: OrderInput[];
+  /** 루티 orders.json 원본({type,data[]}) — 서버에서 어댑터로 변환 */
+  rawOrders?: unknown;
+  /** rawOrders 변환 시 기사 배정 전략 (orders.json 엔 기사가 없으므로 필수) */
+  driverAssignment?: DriverAssignment;
   options?: BuildOptions;
   /** true 일 때만 실제 전송 시도 */
   send?: boolean;
@@ -39,7 +46,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '잘못된 요청 본문입니다.' }, { status: 400 });
   }
 
-  const orders = Array.isArray(body.orders) ? body.orders : [];
+  // 입력 정규화: rawOrders(orders.json 원본)가 오면 어댑터로 변환, 아니면 orders 사용
+  let orders: OrderInput[];
+  let adaptNote: string | null = null;
+  try {
+    if (body.rawOrders !== undefined) {
+      const assignment: DriverAssignment =
+        body.driverAssignment ?? { mode: 'single', driver: '' };
+      const coerced = coerceToOrderInputs(body.rawOrders, assignment);
+      orders = coerced.orders;
+      adaptNote = coerced.note;
+    } else {
+      orders = Array.isArray(body.orders) ? body.orders : [];
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `입력 변환 실패: ${msg}` }, { status: 400 });
+  }
+
   if (orders.length === 0) {
     return NextResponse.json({ error: '주문 데이터가 없습니다.' }, { status: 400 });
   }
@@ -50,7 +74,7 @@ export async function POST(req: NextRequest) {
 
   // 드라이런(기본): 페이로드 + 점검 결과만 반환, 네트워크 호출 없음
   if (!body.send) {
-    return NextResponse.json({ mode: 'dry-run', baseUrl, payload, precheck: check });
+    return NextResponse.json({ mode: 'dry-run', baseUrl, payload, precheck: check, adaptNote });
   }
 
   // 전송 가드

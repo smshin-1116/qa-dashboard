@@ -4,6 +4,10 @@ import { useState } from 'react';
 import DashboardHeader from '@/components/dashboard/header/DashboardHeader';
 import type { AIModel } from '@/types/session';
 import type { OrderInput } from '@/lib/receipt/types';
+import { coerceToOrderInputs } from '@/lib/receipt/orderAdapter';
+import type { DriverAssignment } from '@/lib/receipt/orderAdapter';
+
+type DriverMode = 'single' | 'roundRobin';
 
 const SAMPLE_ORDERS: OrderInput[] = [
   {
@@ -24,6 +28,7 @@ interface ApiResult {
   payload?: unknown;
   response?: unknown;
   error?: string;
+  adaptNote?: string | null;
   precheck?: {
     ok: boolean;
     groupCount: number;
@@ -36,18 +41,44 @@ export default function ReceiptToolView() {
   const [model, setModel] = useState<AIModel>('claude');
   const [ordersText, setOrdersText] = useState(JSON.stringify(SAMPLE_ORDERS, null, 2));
   const [priceMode, setPriceMode] = useState<'sample' | 'input'>('sample');
+  const [driverMode, setDriverMode] = useState<DriverMode>('single');
+  const [driverSingle, setDriverSingle] = useState('홍길동');
+  const [driverList, setDriverList] = useState('홍길동, 김철수');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
 
+  function buildAssignment(): DriverAssignment {
+    if (driverMode === 'roundRobin') {
+      const drivers = driverList
+        .split(',')
+        .map((d) => d.trim())
+        .filter(Boolean);
+      return { mode: 'roundRobin', drivers };
+    }
+    return { mode: 'single', driver: driverSingle.trim() };
+  }
+
   async function run(send: boolean) {
-    let orders: OrderInput[];
+    let parsed: unknown;
     try {
-      orders = JSON.parse(ordersText);
-      if (!Array.isArray(orders)) throw new Error('배열이어야 합니다');
+      parsed = JSON.parse(ordersText);
     } catch (e) {
       setResult({ error: `주문 JSON 파싱 실패: ${e instanceof Error ? e.message : String(e)}` });
       return;
     }
+
+    // orders.json 원본/OrderInput[] 모두 수용 → OrderInput[] 로 정규화 + 기사 배정
+    let orders: OrderInput[];
+    let adaptNote: string;
+    try {
+      const coerced = coerceToOrderInputs(parsed, buildAssignment());
+      orders = coerced.orders;
+      adaptNote = coerced.note;
+    } catch (e) {
+      setResult({ error: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+
     if (send && !window.confirm('실제로 인수증을 전송합니다. 대상이 테스트 환경이 맞습니까?')) return;
 
     setLoading(true);
@@ -58,7 +89,8 @@ export default function ReceiptToolView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orders, options: { priceMode }, send }),
       });
-      setResult((await res.json()) as ApiResult);
+      const json = (await res.json()) as ApiResult;
+      setResult({ ...json, adaptNote: json.adaptNote ?? adaptNote });
     } catch (e) {
       setResult({ error: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -103,7 +135,46 @@ export default function ReceiptToolView() {
               spellCheck={false}
               className="w-full h-72 font-mono text-[12px] leading-relaxed rounded-md bg-[#0B0F17] border border-[#2A3347] p-3 text-slate-200 focus:outline-none focus:border-indigo-500"
             />
-            <div className="flex items-center gap-4 text-[13px]">
+            <p className="text-[12px] text-slate-500 -mt-1">
+              루티 <code className="text-slate-400">orders.json</code> 원본(<code>{'{type, data[]}'}</code>)을 그대로 붙여넣어도 됩니다 — 기사명만 아래에서 지정하세요.
+            </p>
+
+            {/* 기사 배정 — orders.json 엔 기사가 없으므로 별도 지정 (차량 매칭 키) */}
+            <div className="space-y-2 border-t border-[#1E2535] pt-3">
+              <div className="flex items-center gap-4 text-[13px]">
+                <span className="text-slate-400">기사 배정:</span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" checked={driverMode === 'single'} onChange={() => setDriverMode('single')} />
+                  단일 기사
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="radio" checked={driverMode === 'roundRobin'} onChange={() => setDriverMode('roundRobin')} />
+                  납품처별 순환
+                </label>
+              </div>
+              {driverMode === 'single' ? (
+                <input
+                  type="text"
+                  value={driverSingle}
+                  onChange={(e) => setDriverSingle(e.target.value)}
+                  placeholder="배차확정에서 배정된 기사명 (driver.name 과 정확 일치)"
+                  className="w-full text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={driverList}
+                  onChange={(e) => setDriverList(e.target.value)}
+                  placeholder="기사명 쉼표 구분 (예: 홍길동, 김철수) — 납품처 단위로 순환 배정"
+                  className="w-full text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+              )}
+              <p className="text-[12px] text-slate-500">
+                ⚠️ 기사명은 루티에 등록된 <b>driver.name</b> 과 정확히 일치해야 차량 매칭이 통과합니다.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4 text-[13px] border-t border-[#1E2535] pt-3">
               <span className="text-slate-400">단가 채움:</span>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input type="radio" checked={priceMode === 'sample'} onChange={() => setPriceMode('sample')} />
@@ -148,6 +219,9 @@ export default function ReceiptToolView() {
                   모드: <b>{result.mode === 'dry-run' ? '드라이런(미전송)' : '전송 완료'}</b>
                   {result.baseUrl && <span className="text-slate-500"> · 대상 {result.baseUrl}</span>}
                 </div>
+              )}
+              {result.adaptNote && (
+                <div className="text-[13px] text-sky-300">↳ {result.adaptNote}</div>
               )}
               {result.precheck && (
                 <div className="text-[13px]">
