@@ -8,7 +8,12 @@ const ATLASSIAN_CLOUD_ID = process.env.CONFLUENCE_BASE_URL
   ? new URL(process.env.CONFLUENCE_BASE_URL).hostname
   : null;
 
-const BASE_CONTEXT = `모든 응답은 한국어로 작성합니다.${
+const ROOUTY_SPEC_DIRECTIVE = `## Roouty 명세 우선 참고 (중요)
+- 이 작업은 Roouty 제품 기능에 대한 것입니다. 답을 만들기 전에 **반드시 \`roouty-spec\` 스킬을 먼저 실행**하여 관련 화면 명세를 ground truth로 로드하세요.
+- 명세의 권한·검색 필드·목록 컬럼·실패/예외 규칙을 근거로 삼고, 거기에 Confluence 기획·Jira AC를 대조해 실제 루티 서비스에 밀착된 산출물을 만드세요.
+- 산출물에는 참고한 근거(명세 문서명 + 티켓 키 등)를 명시하고, 명세에 없거나 모순되는 부분은 "명세 미정의"로 표시하세요.`;
+
+const BASE_CONTEXT = `모든 응답은 한국어로 작성합니다.\n\n${ROOUTY_SPEC_DIRECTIVE}${
   ATLASSIAN_CLOUD_ID
     ? `\n\n## Atlassian 설정\n- cloudId: ${ATLASSIAN_CLOUD_ID}\n- MCP Atlassian 도구 호출 시 cloudId는 항상 "${ATLASSIAN_CLOUD_ID}"를 사용합니다.`
     : ''

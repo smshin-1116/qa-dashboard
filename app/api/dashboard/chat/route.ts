@@ -96,6 +96,11 @@ const GITHUB_REPO_BACKEND = process.env.GITHUB_REPO_BACKEND ?? null;
 const GITHUB_REPO_FRONTEND = process.env.GITHUB_REPO_FRONTEND ?? null;
 
 const BASE_CONTEXT = `
+## Roouty 명세 우선 참고 (중요)
+- Roouty 제품 기능(자동배차, 배차계획, 모니터링, 납품처관리, 인수증, 설정 등)에 대한 작업이면, 답을 만들기 전에 **반드시 \`roouty-spec\` 스킬을 먼저 실행**하여 관련 화면 명세를 ground truth로 로드하세요.
+- 명세의 권한·검색 필드·목록 컬럼·실패/예외 규칙을 근거로 삼고, 거기에 Jira(티켓/AC)·Confluence(기획)·Figma(화면)를 MCP로 대조해 실제 루티 서비스에 밀착된 산출물을 만드세요.
+- 산출물에는 참고한 근거(명세 문서명 + 티켓 키 등)를 명시하고, 명세에 없거나 모순되는 부분은 "명세 미정의"로 표시하세요.
+
 ## Atlassian 설정${ATLASSIAN_CLOUD_ID ? `\n- Jira/Confluence cloudId: ${ATLASSIAN_CLOUD_ID}\n- MCP Atlassian 도구 호출 시 cloudId는 항상 "${ATLASSIAN_CLOUD_ID}"를 사용합니다.` : ''}
 
 ## GitHub 레포지토리${GITHUB_REPO_BACKEND ? `\n- 백엔드: ${GITHUB_REPO_BACKEND}` : ''}${GITHUB_REPO_FRONTEND ? `\n- 프론트엔드: ${GITHUB_REPO_FRONTEND}` : ''}${GITHUB_REPO_BACKEND || GITHUB_REPO_FRONTEND ? '\n- GitHub 코드 분석 시 위 레포를 기준으로 검색합니다.' : ''}
