@@ -56,7 +56,11 @@ export interface BuildOptions {
   priceMode?: 'sample' | 'input';
   /** TSKEY/TKNUM 생성용 기준일 (YYYYMMDD). 미지정 시 호출 시점 날짜. */
   baseDate?: string;
-  /** TSKEY 충돌 방지용 시드(같은 호출 내 그룹 순번에 더해짐) */
+  /**
+   * TSKEY/TKNUM 충돌 방지용 시드(같은 호출 내 그룹 순번에 더해짐).
+   * 미지정 시 서버 라우트가 요청 시각 기반 값으로 채워 매 전송마다 새 TSKEY 를 발급한다
+   * (동일 TSKEY 재전송은 백엔드 AlreadyIssuedFilter 가 차단됨).
+   */
   seed?: number;
 }
 

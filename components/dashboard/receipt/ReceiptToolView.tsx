@@ -138,6 +138,9 @@ export default function ReceiptToolView() {
             <p className="text-[12px] text-slate-500 -mt-1">
               루티 <code className="text-slate-400">orders.json</code> 원본(<code>{'{type, data[]}'}</code>)을 그대로 붙여넣어도 됩니다 — 기사명만 아래에서 지정하세요.
             </p>
+            <p className="text-[12px] text-slate-500">
+              ℹ️ 주문은 <b>배차된 상태(scheduled 이상)</b>여야 매칭됩니다 — 미배차·취소·보류·삭제 주문은 백엔드에서 매칭 제외됩니다. 기사·납품처도 루티에 <b>등록·활성</b> 상태여야 합니다(이 조건은 전송 후 서버에서만 확인 가능).
+            </p>
 
             {/* 기사 배정 — orders.json 엔 기사가 없으므로 별도 지정 (차량 매칭 키) */}
             <div className="space-y-2 border-t border-[#1E2535] pt-3">

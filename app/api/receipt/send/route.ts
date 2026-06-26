@@ -68,7 +68,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '주문 데이터가 없습니다.' }, { status: 400 });
   }
 
-  const payload = buildSapReceiptPayload(orders, body.options ?? {});
+  // TSKEY 충돌 방지: seed 미지정 시 요청 시각 기반으로 채워, 매 전송마다 새 TSKEY 발급
+  // (동일 TSKEY 재전송은 백엔드 AlreadyIssuedFilter 가 차단하므로 기본은 매번 유니크하게).
+  const buildOptions: BuildOptions = {
+    ...(body.options ?? {}),
+    seed: body.options?.seed ?? Date.now() % 1_000_000,
+  };
+  const payload = buildSapReceiptPayload(orders, buildOptions);
   const check = precheck(orders, payload);
   const baseUrl = process.env.ROOUTY_BASE_URL ?? null;
 

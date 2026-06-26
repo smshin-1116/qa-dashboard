@@ -82,7 +82,9 @@ export function buildSapReceiptPayload(
         headerNet += amount;
         return {
           MATNR: p.code,
-          ARKTX: p.name, // 정확 일치 대상 — 가공 금지
+          // ARKTX: 백엔드가 normalizeString(공백 제거) 후 product.name 과 비교 →
+          // 의미 문자는 정확해야 하나 공백 차이는 무시됨. 원문 그대로 넣는다.
+          ARKTX: p.name,
           EAN11: '',
           LFIMG: '1',
           BXQTY: String(p.quantity),
