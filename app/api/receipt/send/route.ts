@@ -135,11 +135,11 @@ async function resolveToken(baseUrl: string): Promise<string> {
   if (!email || !password) {
     throw new Error('인증 정보 없음 — ROOUTY_TOKEN 또는 ROOUTY_EMAIL/ROOUTY_PASSWORD 필요');
   }
-  const signinPath = process.env.ROOUTY_SIGNIN_PATH ?? '/signin';
+  const signinPath = process.env.ROOUTY_SIGNIN_PATH ?? '/auth/signin';
   const res = await fetch(joinUrl(baseUrl, signinPath), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ loginAccount: email, password, loginType: 'pc' }),
   });
   const json = await res.json().catch(() => null);
   if (!res.ok) throw new Error(`로그인 실패 (${res.status})`);

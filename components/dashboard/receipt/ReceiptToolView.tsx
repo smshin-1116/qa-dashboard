@@ -46,6 +46,49 @@ export default function ReceiptToolView() {
   const [driverList, setDriverList] = useState('홍길동, 김철수');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
+  // 배차에서 불러오기 (order/list 자동연동)
+  const [routeKeyword, setRouteKeyword] = useState('');
+  const [routeSearchItem, setRouteSearchItem] = useState<'routeCode' | 'routeName'>('routeCode');
+  const [performedDate, setPerformedDate] = useState('');
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchNote, setFetchNote] = useState<string | null>(null);
+
+  async function fetchFromRoute() {
+    const keyword = routeKeyword.trim();
+    if (!keyword) {
+      setFetchNote('배차 코드 또는 주행 이름을 입력하세요.');
+      return;
+    }
+    setFetchLoading(true);
+    setFetchNote(null);
+    setResult(null);
+    try {
+      const body: Record<string, unknown> = { keyword, searchItem: routeSearchItem };
+      if (performedDate.trim()) body.performedDate = performedDate.trim();
+      const res = await fetch('/api/receipt/fetch-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (json.error) {
+        setFetchNote(`✖ ${json.error}`);
+        return;
+      }
+      const orders = (json.orders ?? []) as OrderInput[];
+      if (orders.length === 0) {
+        setFetchNote('조회 결과가 없습니다. 코드/날짜를 확인하세요.');
+        return;
+      }
+      // 불러온 주문은 기사명이 이미 채워져 있음 → 입력란에 그대로 반영
+      setOrdersText(JSON.stringify(orders, null, 2));
+      setFetchNote(`✓ ${json.note ?? `${orders.length}건 불러옴`} — 아래 [미리보기/점검]으로 확인하세요.`);
+    } catch (e) {
+      setFetchNote(`✖ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setFetchLoading(false);
+    }
+  }
 
   function buildAssignment(): DriverAssignment {
     if (driverMode === 'roundRobin') {
@@ -116,6 +159,54 @@ export default function ReceiptToolView() {
             ⚠️ 가라 인수증도 <b>[인수증 전송]</b>으로 실고객에게 발송될 수 있습니다. <b>반드시 테스트/스테이징 환경</b>에서만 전송하세요.
             전송은 <code className="text-amber-100">.env.local</code> 의 <code>ROOUTY_ALLOW_SEND=true</code> + 대상 <code>ROOUTY_BASE_URL</code> 설정 시에만 동작합니다.
           </div>
+
+          {/* 배차에서 불러오기 (order/list 자동연동) */}
+          <section className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-medium text-sky-200">🔗 배차에서 불러오기</span>
+              <span className="text-[12px] text-slate-500">루티 order/list 조회 → 기사·품목까지 자동 채움</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={routeSearchItem}
+                onChange={(e) => setRouteSearchItem(e.target.value as 'routeCode' | 'routeName')}
+                className="text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-2 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+              >
+                <option value="routeCode">배차 코드</option>
+                <option value="routeName">주행 이름</option>
+              </select>
+              <input
+                type="text"
+                value={routeKeyword}
+                onChange={(e) => setRouteKeyword(e.target.value)}
+                placeholder={routeSearchItem === 'routeCode' ? '예: 20260612R934538' : '예: 2026.06.12 (금) 배차 #2'}
+                className="flex-1 min-w-[200px] text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+              />
+              <input
+                type="text"
+                value={performedDate}
+                onChange={(e) => setPerformedDate(e.target.value)}
+                placeholder="주행일 YYYYMMDD-YYYYMMDD (선택)"
+                className="w-[230px] text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+              />
+              <button
+                type="button"
+                disabled={fetchLoading}
+                onClick={fetchFromRoute}
+                className="px-4 py-2 rounded-md bg-sky-600 hover:bg-sky-500 text-[13px] text-white disabled:opacity-50"
+              >
+                {fetchLoading ? '불러오는 중…' : '불러오기'}
+              </button>
+            </div>
+            {fetchNote && (
+              <div className={`text-[12px] ${fetchNote.startsWith('✖') ? 'text-rose-300' : 'text-sky-300'}`}>
+                {fetchNote}
+              </div>
+            )}
+            <p className="text-[12px] text-slate-500">
+              불러오면 아래 입력란이 자동 채워지고, 기사명은 배차 결과에서 가져오므로 별도 지정이 필요 없습니다.
+            </p>
+          </section>
 
           {/* 입력 */}
           <section className="rounded-lg border border-[#1E2535] bg-[#0F1520] p-4 space-y-3">
