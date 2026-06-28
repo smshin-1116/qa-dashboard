@@ -87,9 +87,12 @@ export function precheck(orders: OrderInput[], payload: SapReceiptPayload): Prec
             message: `${prodt.VBELN} 품목 ARKTX 비어있음 → STANDARD_REQUIRED_FIELD 실패`,
           });
         }
-        const net = Number(line.NETPR.replace(/,/g, ''));
-        if (!net) {
-          issues.push({ level: 'warn', message: `${prodt.VBELN} / ${line.MATNR} 단가 0 — PDF에 0원 인쇄` });
+        // 단가 0 경고는 PRICED(단가 있음)일 때만 — UNPRICED 는 빈값이 정상
+        if (entry.TSGUB === 'STANDARD_PRICED') {
+          const net = Number((line.NETPR || '').replace(/,/g, ''));
+          if (!net) {
+            issues.push({ level: 'warn', message: `${prodt.VBELN} / ${line.MATNR} 단가 0 — PDF에 0원 인쇄` });
+          }
         }
       });
     });

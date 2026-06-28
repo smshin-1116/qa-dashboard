@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import DashboardHeader from '@/components/dashboard/header/DashboardHeader';
 import type { AIModel } from '@/types/session';
-import type { OrderInput } from '@/lib/receipt/types';
+import type { OrderInput, Tsgub } from '@/lib/receipt/types';
 import { coerceToOrderInputs } from '@/lib/receipt/orderAdapter';
 import type { DriverAssignment } from '@/lib/receipt/orderAdapter';
 
@@ -40,6 +40,7 @@ interface ApiResult {
 export default function ReceiptToolView() {
   const [model, setModel] = useState<AIModel>('claude');
   const [ordersText, setOrdersText] = useState(JSON.stringify(SAMPLE_ORDERS, null, 2));
+  const [tsgub, setTsgub] = useState<Tsgub>('STANDARD_PRICED');
   const [priceMode, setPriceMode] = useState<'sample' | 'input'>('sample');
   const [driverMode, setDriverMode] = useState<DriverMode>('single');
   const [driverSingle, setDriverSingle] = useState('홍길동');
@@ -130,7 +131,7 @@ export default function ReceiptToolView() {
       const res = await fetch('/api/receipt/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders, options: { priceMode }, send }),
+        body: JSON.stringify({ orders, options: { priceMode, tsgub }, send }),
       });
       const json = (await res.json()) as ApiResult;
       setResult({ ...json, adaptNote: json.adaptNote ?? adaptNote });
@@ -268,14 +269,42 @@ export default function ReceiptToolView() {
               </p>
             </div>
 
-            <div className="flex items-center gap-4 text-[13px] border-t border-[#1E2535] pt-3">
-              <span className="text-slate-400">단가 채움:</span>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" checked={priceMode === 'sample'} onChange={() => setPriceMode('sample')} />
+            {/* 거래명세서 종류(TSGUB) */}
+            <div className="flex items-center gap-3 text-[13px] border-t border-[#1E2535] pt-3">
+              <span className="text-slate-400">인수증 종류(TSGUB):</span>
+              <select
+                value={tsgub}
+                onChange={(e) => setTsgub(e.target.value as Tsgub)}
+                className="text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-2 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="STANDARD_PRICED">단가 있음 (STANDARD_PRICED)</option>
+                <option value="STANDARD_UNPRICED">단가 없음 (STANDARD_UNPRICED)</option>
+                <option value="INTEGRATED" disabled>통합 (INTEGRATED) — 추후</option>
+              </select>
+              <span className="text-[12px] text-slate-500">
+                {tsgub === 'STANDARD_UNPRICED' ? '단가/금액 필드를 빈값으로 생성' : '단가 랜덤 + 금액 정확 계산'}
+              </span>
+            </div>
+
+            {/* 단가 채움 — PRICED 일 때만 의미 */}
+            <div className="flex items-center gap-4 text-[13px]">
+              <span className={tsgub === 'STANDARD_PRICED' ? 'text-slate-400' : 'text-slate-600'}>단가 채움:</span>
+              <label className={`flex items-center gap-1.5 ${tsgub === 'STANDARD_PRICED' ? 'cursor-pointer' : 'opacity-40'}`}>
+                <input
+                  type="radio"
+                  disabled={tsgub !== 'STANDARD_PRICED'}
+                  checked={priceMode === 'sample'}
+                  onChange={() => setPriceMode('sample')}
+                />
                 샘플 자동 생성
               </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" checked={priceMode === 'input'} onChange={() => setPriceMode('input')} />
+              <label className={`flex items-center gap-1.5 ${tsgub === 'STANDARD_PRICED' ? 'cursor-pointer' : 'opacity-40'}`}>
+                <input
+                  type="radio"
+                  disabled={tsgub !== 'STANDARD_PRICED'}
+                  checked={priceMode === 'input'}
+                  onChange={() => setPriceMode('input')}
+                />
                 입력값 사용
               </label>
             </div>

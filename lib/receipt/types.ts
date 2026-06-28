@@ -49,10 +49,20 @@ export interface SupplierInfo {
   address: string;
 }
 
+/**
+ * 거래명세서 종류(TSGUB):
+ *  - STANDARD_PRICED:   일반·단가 있음 (NETPR/NETWR/TNETWR 채움)
+ *  - STANDARD_UNPRICED: 일반·단가 없음 (단가 필드 빈값 "")
+ *  - INTEGRATED:        통합 (PRODT2 구조 — 별도 미구현)
+ */
+export type Tsgub = 'STANDARD_PRICED' | 'STANDARD_UNPRICED' | 'INTEGRATED';
+
 export interface BuildOptions {
   /** 공급자 헤더 정보 (미지정 시 기본 더미값) */
   supplier?: SupplierInfo;
-  /** 단가 채움 전략: 'sample' = 미지정 단가 자동 생성, 'input' = 입력값만 사용(없으면 0) */
+  /** 거래명세서 종류. 미지정 시 STANDARD_PRICED. UNPRICED 면 단가 필드 빈값. */
+  tsgub?: Tsgub;
+  /** 단가 채움 전략(PRICED 일 때만 의미): 'sample' = 단가 자동 생성, 'input' = 입력값만 사용(없으면 0) */
   priceMode?: 'sample' | 'input';
   /** TSKEY/TKNUM 생성용 기준일 (YYYYMMDD). 미지정 시 호출 시점 날짜. */
   baseDate?: string;
@@ -82,27 +92,49 @@ export interface SapProdt {
   PRODT1: SapProdt1[];
 }
 
-/** SAP 거래명세서 헤더 1건 (= 인수증 1건) */
+/** SAP 거래명세서 헤더 1건 (= 인수증 1건). 필드 순서는 SAP 샘플과 동일. */
 export interface SapReceiptEntry {
   TSKEY: string;
-  TSGUB: 'STANDARD_PRICED';
+  TSGUB: Tsgub;
   TKNUM: string;
   LIFNR: string;
-  EXTI1: string;
   SIGNI: string;
-  KUNNR: string;
+  EXTI1: string;
+  HOCHA: string;
   ASTCD: string;
   ASANG: string;
   AADDR: string;
+  WERK0: string;
+  WERKS: string;
+  ADAEP: string;
+  KUNNR: string;
+  DNAME: string;
   CSTCD: string;
   CSANG: string;
   CADDR: string;
+  CDAEP: string;
+  TELNO: string;
+  LINE1: string;
   LINE2: string;
   LINE3: string;
+  LINE4: string;
+  LINE5: string;
+  LINE6: string;
   LINE7: string;
+  LINE8: string;
+  TLFIMG: string;
   TBXQTY: string;
+  TEAQTY: string;
   TNETWR: string;
+  TNETWR2: string;
   TNETWR3: string;
+  TBUGA3: string;
+  TAMT3: string;
+  BMAMT: string;
+  CMAMT: string;
+  LHAMT: string;
+  CHAMT: string;
+  CHPNT: string;
   PRODT: SapProdt[];
   PRODT2: never[];
 }
