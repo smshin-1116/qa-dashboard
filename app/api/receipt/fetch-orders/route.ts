@@ -12,7 +12,13 @@
  *   ROOUTY_ORDER_LIST_PATH=/order/list          # 선택(기본값 존재)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveToken, fetchOrderListPage, fetchOrderListRaw, signinRaw } from '@/lib/receipt/rooutyClient';
+import {
+  resolveToken,
+  fetchOrderListPage,
+  fetchOrderListRaw,
+  fetchEpodReceiptListRaw,
+  signinRaw,
+} from '@/lib/receipt/rooutyClient';
 import { adaptOrderList, extractOrderArray, extractTotalCount } from '@/lib/receipt/orderListAdapter';
 
 interface FetchRequestBody {
@@ -26,6 +32,12 @@ interface FetchRequestBody {
   debug?: boolean;
   /** true 면 로그인 응답 "구조"만(값 redact) 반환 — 토큰 필드 위치 확인용 */
   debugAuth?: boolean;
+  /** true 면 인수증 조회 API 로 실제 생성 여부 확인 (date=YYYY-MM-DD createdAt 기준) */
+  probeReceipts?: boolean;
+  /** probeReceipts 의 createdAt 기준일 (YYYY-MM-DD) */
+  date?: string;
+  /** probeReceipts 에서 인수증 list 에 그대로 넘길 쿼리(UI 필터 재현용) */
+  query?: Record<string, string>;
 }
 
 /** 긴 문자열(토큰 등)은 가리고 구조만 보이게 재귀 redact */
@@ -86,6 +98,72 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return NextResponse.json({ error: `로그인 디버그 실패: ${msg}` }, { status: 502 });
+    }
+  }
+
+  // 인수증 실제 생성 여부 확인 (EpodReceipt list 조회)
+  if (body.probeReceipts) {
+    try {
+      const token = await resolveToken(baseUrl);
+      const date = body.date;
+      let params: Record<string, string> = { pageSize: '100' };
+      if (body.query && typeof body.query === 'object') {
+        // UI 필터 재현용 임의 쿼리 통과
+        params = { pageSize: '100', ...(body.query as Record<string, string>) };
+      } else if (date) {
+        params.dateField = 'createdAt';
+        params.fromDate = date;
+        params.toDate = date;
+      }
+      const { status, url, text } = await fetchEpodReceiptListRaw(baseUrl, token, params);
+      let json: unknown = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = text.slice(0, 200);
+      }
+      // 우리가 어느 팀/회사로 호출 중인지 (JWT payload 디코드 — 검증 아님, claim 읽기만)
+      let tokenClaims: Record<string, unknown> | null = null;
+      try {
+        const payload = token.split('.')[1];
+        tokenClaims = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+      } catch {
+        tokenClaims = null;
+      }
+      const root = (json && typeof json === 'object' ? (json as Record<string, unknown>) : {}) as Record<string, unknown>;
+      const list = Array.isArray(root.receiptList) ? (root.receiptList as Record<string, unknown>[]) : [];
+      const summary = list.map((r) => ({
+        receiptId: r.receiptId,
+        status: r.status,
+        type: r.type,
+        teamId: r.teamId,
+        consigneeName: r.consigneeName,
+        drivingDate: r.drivingDate,
+        desiredDate: r.desiredDate,
+        orderStatus: r.orderStatus,
+      }));
+      const countBy = (key: string) =>
+        summary.reduce((acc: Record<string, number>, r) => {
+          const k = String((r as Record<string, unknown>)[key] ?? 'null');
+          acc[k] = (acc[k] ?? 0) + 1;
+          return acc;
+        }, {});
+      return NextResponse.json({
+        mode: 'probeReceipts',
+        status,
+        url: url.replace(baseUrl, '<baseUrl>'),
+        tokenClaims: tokenClaims ? redactStructure(tokenClaims) : null,
+        totalCount: root.totalCount,
+        returned: summary.length,
+        byStatus: countBy('status'),
+        byType: countBy('type'),
+        byTeamId: countBy('teamId'),
+        byDrivingDate: countBy('drivingDate'),
+        items: summary,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ error: `인수증 조회 실패: ${msg}` }, { status: 502 });
     }
   }
 

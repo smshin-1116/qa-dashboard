@@ -95,6 +95,20 @@ export async function fetchOrderListRaw(
   return { status: res.status, url, text };
 }
 
+/** 인수증 조회(EpodReceipt) 목록 원본 — 생성 여부 확인용 (throw 안 함) */
+export async function fetchEpodReceiptListRaw(
+  baseUrl: string,
+  token: string,
+  params: Record<string, string>,
+): Promise<{ status: number; url: string; text: string }> {
+  const path = process.env.ROOUTY_EPOD_RECEIPT_LIST_PATH ?? '/v2/epod/receipt/list';
+  const qs = new URLSearchParams(params);
+  const url = `${joinUrl(baseUrl, path)}?${qs.toString()}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const text = await res.text().catch(() => '');
+  return { status: res.status, url, text };
+}
+
 /** order/list 한 페이지 조회 (응답 envelope 는 호출부에서 해석) */
 export async function fetchOrderListPage(
   baseUrl: string,
