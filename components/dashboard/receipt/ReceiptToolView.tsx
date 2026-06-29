@@ -53,6 +53,8 @@ export default function ReceiptToolView() {
   const [performedDate, setPerformedDate] = useState('');
   const [fetchLoading, setFetchLoading] = useState(false);
   const [fetchNote, setFetchNote] = useState<string | null>(null);
+  // 다른 계정으로 동작 시 사용할 JWT (비우면 .env.local 계정)
+  const [authToken, setAuthToken] = useState('');
 
   async function fetchFromRoute() {
     const keyword = routeKeyword.trim();
@@ -66,6 +68,7 @@ export default function ReceiptToolView() {
     try {
       const body: Record<string, unknown> = { keyword, searchItem: routeSearchItem };
       if (performedDate.trim()) body.performedDate = performedDate.trim();
+      if (authToken.trim()) body.token = authToken.trim();
       const res = await fetch('/api/receipt/fetch-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -131,7 +134,7 @@ export default function ReceiptToolView() {
       const res = await fetch('/api/receipt/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders, options: { priceMode, tsgub }, send }),
+        body: JSON.stringify({ orders, options: { priceMode, tsgub }, send, token: authToken.trim() || undefined }),
       });
       const json = (await res.json()) as ApiResult;
       setResult({ ...json, adaptNote: json.adaptNote ?? adaptNote });
@@ -160,6 +163,24 @@ export default function ReceiptToolView() {
             ⚠️ 가라 인수증도 <b>[인수증 전송]</b>으로 실고객에게 발송될 수 있습니다. <b>반드시 테스트/스테이징 환경</b>에서만 전송하세요.
             전송은 <code className="text-amber-100">.env.local</code> 의 <code>ROOUTY_ALLOW_SEND=true</code> + 대상 <code>ROOUTY_BASE_URL</code> 설정 시에만 동작합니다.
           </div>
+
+          {/* 계정 (인증 토큰) — 불러오기·전송 공통, 가장 먼저 정함 */}
+          <section className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-4 space-y-1.5">
+            <label className="text-[13px] font-medium text-sky-200">🔐 계정 (인증 토큰)</label>
+            <input
+              type="password"
+              value={authToken}
+              onChange={(e) => setAuthToken(e.target.value)}
+              placeholder="비우면 .env.local 계정 / JWT 입력 시 해당 계정으로 조회·전송"
+              spellCheck={false}
+              className="w-full text-[12px] font-mono rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+            />
+            <p className="text-[12px] text-slate-500">
+              {authToken.trim()
+                ? '✓ 입력한 토큰 계정으로 아래 불러오기·전송이 동작합니다.'
+                : '비어 있음 → .env.local 계정으로 동작. (다른 계정으로 만들려면 그 계정 JWT 입력)'}
+            </p>
+          </section>
 
           {/* 배차에서 불러오기 (order/list 자동연동) */}
           <section className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-4 space-y-3">

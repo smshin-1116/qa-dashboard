@@ -9,15 +9,23 @@ export function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
 }
 
-/** ROOUTY_TOKEN 직접 주입 우선, 없으면 이메일/비번으로 로그인해 JWT 발급 */
-export async function resolveToken(baseUrl: string): Promise<string> {
+/**
+ * 사용할 JWT 결정. 우선순위:
+ *   1) overrideToken (요청 body 로 받은 토큰 — 다른 계정으로 동작)
+ *   2) ROOUTY_TOKEN (env 직접 주입)
+ *   3) ROOUTY_EMAIL/ROOUTY_PASSWORD 로 /auth/signin 로그인
+ */
+export async function resolveToken(baseUrl: string, overrideToken?: string): Promise<string> {
+  const fromBody = overrideToken?.trim();
+  if (fromBody) return fromBody;
+
   const direct = process.env.ROOUTY_TOKEN;
   if (direct) return direct;
 
   const email = process.env.ROOUTY_EMAIL;
   const password = process.env.ROOUTY_PASSWORD;
   if (!email || !password) {
-    throw new Error('인증 정보 없음 — ROOUTY_TOKEN 또는 ROOUTY_EMAIL/ROOUTY_PASSWORD 필요');
+    throw new Error('인증 정보 없음 — 요청 토큰, ROOUTY_TOKEN, 또는 ROOUTY_EMAIL/ROOUTY_PASSWORD 중 하나 필요');
   }
   const signinPath = process.env.ROOUTY_SIGNIN_PATH ?? '/auth/signin';
   const res = await fetch(joinUrl(baseUrl, signinPath), {

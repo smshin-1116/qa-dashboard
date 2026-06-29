@@ -36,6 +36,8 @@ interface SendRequestBody {
   options?: BuildOptions;
   /** true 일 때만 실제 전송 시도 */
   send?: boolean;
+  /** 다른 계정으로 전송 시 사용할 JWT (비우면 .env.local 계정 사용) */
+  token?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -101,7 +103,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const token = await resolveToken(baseUrl);
+    const token = await resolveToken(baseUrl, body.token);
     const path = process.env.ROOUTY_SAP_RECEIPT_PATH ?? '/v2/sap/receipt';
     const res = await fetch(joinUrl(baseUrl, path), {
       method: 'POST',
@@ -125,15 +127,20 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/** ROOUTY_TOKEN 직접 주입 우선, 없으면 이메일/비번으로 로그인해 토큰 발급 */
-async function resolveToken(baseUrl: string): Promise<string> {
+/**
+ * 사용할 JWT 결정. 우선순위: 요청 토큰(overrideToken) → ROOUTY_TOKEN(env) → 이메일/비번 로그인.
+ */
+async function resolveToken(baseUrl: string, overrideToken?: string): Promise<string> {
+  const fromBody = overrideToken?.trim();
+  if (fromBody) return fromBody;
+
   const direct = process.env.ROOUTY_TOKEN;
   if (direct) return direct;
 
   const email = process.env.ROOUTY_EMAIL;
   const password = process.env.ROOUTY_PASSWORD;
   if (!email || !password) {
-    throw new Error('인증 정보 없음 — ROOUTY_TOKEN 또는 ROOUTY_EMAIL/ROOUTY_PASSWORD 필요');
+    throw new Error('인증 정보 없음 — 요청 토큰, ROOUTY_TOKEN, 또는 ROOUTY_EMAIL/ROOUTY_PASSWORD 중 하나 필요');
   }
   const signinPath = process.env.ROOUTY_SIGNIN_PATH ?? '/auth/signin';
   const res = await fetch(joinUrl(baseUrl, signinPath), {

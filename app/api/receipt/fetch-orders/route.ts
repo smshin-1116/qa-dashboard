@@ -38,6 +38,8 @@ interface FetchRequestBody {
   date?: string;
   /** probeReceipts 에서 인수증 list 에 그대로 넘길 쿼리(UI 필터 재현용) */
   query?: Record<string, string>;
+  /** 다른 계정으로 동작 시 사용할 JWT (비우면 .env.local 계정 사용) */
+  token?: string;
 }
 
 /** 긴 문자열(토큰 등)은 가리고 구조만 보이게 재귀 redact */
@@ -104,7 +106,7 @@ export async function POST(req: NextRequest) {
   // 인수증 실제 생성 여부 확인 (EpodReceipt list 조회)
   if (body.probeReceipts) {
     try {
-      const token = await resolveToken(baseUrl);
+      const token = await resolveToken(baseUrl, body.token);
       const date = body.date;
       let params: Record<string, string> = { pageSize: '100' };
       if (body.query && typeof body.query === 'object') {
@@ -174,7 +176,7 @@ export async function POST(req: NextRequest) {
   const searchItem = body.searchItem ?? 'routeName';
 
   try {
-    const token = await resolveToken(baseUrl);
+    const token = await resolveToken(baseUrl, body.token);
 
     // debug: 원본 응답 반환 (구조/에러 확인용)
     if (body.debug) {
