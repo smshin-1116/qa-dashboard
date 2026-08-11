@@ -238,6 +238,9 @@ export default function GatePanel({
         </div>
       </div>
 
+      {/* ══ Codex → Claude 인계 계약 ══════════════════════════════ */}
+      <ContractCard contract={contract} engine={engine} />
+
       {/* ══ ② 확인 게이트 ═════════════════════════════════════════ */}
       <div
         className="rounded-[13px] border p-3.5"
@@ -348,6 +351,135 @@ export default function GatePanel({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Codex → Claude 인계 계약 카드 (시안 1783~1858행) ────────────────
+
+/**
+ * 모델이 바뀌는 지점을 **눈에 보이게** 한다.
+ *
+ * 이 카드에 도달했다는 것은 codex 흡수가 계약 검증을 통과했다는 뜻이다
+ * (실패했으면 GatePanel이 폴백 배지만 띄우고 여기까지 안 온다). 그래서
+ * 1차는 항상 "통과"이고, 2차·폴백은 있었던 안전망을 설명하는 대기 행이다.
+ *
+ * 스키마 블록의 개수는 **실제 계약**에서 뽑는다 — 시안의 `// 8건` 주석이
+ * 하드코딩이 아니라 이번 흡수의 진짜 수치가 되게 한다.
+ */
+function ContractCard({ contract, engine }: { contract: Contract; engine: 'codex' | 'fallback' | null }) {
+  const n = {
+    sources: contract.sources.length,
+    requirements: contract.requirements.length,
+    conflicts: contract.conflicts.length,
+    duplicates: contract.duplicates.length,
+    gaps: contract.gaps.length,
+    decisions: contract.decisions.length,
+  };
+  const fellBack = engine === 'fallback';
+
+  return (
+    <div
+      className="rounded-[13px] border p-3.5"
+      style={{ background: C.panel, borderColor: C.line, borderLeft: `3px solid ${C.crit}` }}
+    >
+      <div className="flex items-start justify-between gap-2.5 mb-2.5">
+        <div>
+          <div className="text-[13px] font-[640] flex items-center gap-1.5" style={{ color: C.tx1 }}>
+            <Dot color={C.codex} /> Codex → <Dot color={C.accent} /> Claude 인계 계약
+          </div>
+          <div className="text-[11px] mt-0.5" style={{ color: C.tx3 }}>
+            모델이 바뀌는 지점 — <b style={{ color: C.tx2 }}>스키마가 흔들리면 여기서 전부 깨진다</b>
+          </div>
+        </div>
+        <Pill fg={fellBack ? C.warn : C.ok}>{fellBack ? '폴백 동작' : '검증 통과'}</Pill>
+      </div>
+
+      {/* 계약 스키마 — 개수는 이번 흡수의 실측값 */}
+      <div
+        className="rounded-[9px] border px-3 py-2.5 mb-2.5 font-mono text-[10.5px] leading-[1.9] overflow-x-auto"
+        style={{ background: C.inset, borderColor: C.line, color: C.tx2 }}
+      >
+        <div style={{ color: C.tx4 }}>{'// Codex 출력 = Claude 입력. 이 형태를 벗어나면 진행하지 않는다'}</div>
+        <div>{'{'}</div>
+        <SchemaLine k="sources" body="{ id, type, url, 추출 요약, unclear[] }" count={n.sources} />
+        <SchemaLine k="requirements" body="{ id, text, from[], screens[], apis[] }" count={n.requirements} />
+        <SchemaLine k="conflicts" body="{ topic, sides[{source, claim, updated_at}], severity }" count={n.conflicts} />
+        <SchemaLine k="duplicates" body="{ requirement_ids[] }" count={n.duplicates} />
+        <SchemaLine k="gaps" body="{ text, mentioned_in, covered_by }" count={n.gaps} />
+        <SchemaLine k="impacts" body="{ tc_ids[], contract_keys[], open_bugs[] }" />
+        <SchemaLine k="decisions" body="{ question, answer, decided_by }" count={n.decisions} note="②에서 채워짐" />
+        <div>{'}'}</div>
+      </div>
+
+      {/* 3단 방어 — 1차 통과 / 2차 재시도 / 폴백 */}
+      <div
+        className="flex flex-col gap-px rounded-[9px] border overflow-hidden"
+        style={{ background: C.line, borderColor: C.line }}
+      >
+        <ContractRow
+          pill={<Pill fg={C.ok}>1차</Pill>}
+          title="스키마 검증 통과 → ③ 설계 진행"
+          sub="필수 필드·타입·참조 무결성(from[]이 실재하는 source를 가리키는지) 확인"
+          state={fellBack ? '건너뜀' : '통과'}
+          stateColor={fellBack ? C.tx4 : C.ok}
+        />
+        <ContractRow
+          pill={<Pill fg={C.warn}>2차</Pill>}
+          title="검증 실패 → Codex에 1회 재시도"
+          sub="위반 지점을 지적해서 되돌려준다 — 전체 재실행이 아니라 형식 교정만"
+          state={fellBack ? '소진' : '대기'}
+          stateColor={C.tx4}
+        />
+        <ContractRow
+          pill={<Pill fg={C.crit}>폴백</Pill>}
+          title="또 실패하거나 codex 미설치 → Claude 단독 진행"
+          sub='⓪①을 Claude가 처리하고 "분산 실패 · Claude 단독" 배지 표시 · 작업은 멈추지 않는다'
+          state={fellBack ? '동작 중' : '대기'}
+          stateColor={fellBack ? C.warn : C.tx4}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SchemaLine({ k, body, count, note }: { k: string; body: string; count?: number; note?: string }) {
+  return (
+    <div>
+      &nbsp;&nbsp;<span style={{ color: C.accent }}>&quot;{k}&quot;</span>: {body}
+      {typeof count === 'number' && <span style={{ color: C.tx4 }}> {'//'} {count}건</span>}
+      {note && <span style={{ color: C.tx4 }}> {'//'} {note}</span>}
+    </div>
+  );
+}
+
+function ContractRow({
+  pill,
+  title,
+  sub,
+  state,
+  stateColor,
+}: {
+  pill: React.ReactNode;
+  title: string;
+  sub: string;
+  state: string;
+  stateColor: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-2.5" style={{ background: C.panel }}>
+      {pill}
+      <div className="flex-1 min-w-0">
+        <div className="text-[12.5px] font-[550]" style={{ color: C.tx1 }}>
+          {title}
+        </div>
+        <div className="text-[11px] mt-px" style={{ color: C.tx3 }}>
+          {sub}
+        </div>
+      </div>
+      <span className="font-mono text-[11px] whitespace-nowrap" style={{ color: stateColor }}>
+        {state}
+      </span>
     </div>
   );
 }
