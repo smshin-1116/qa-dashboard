@@ -93,6 +93,23 @@ export const WORKSPACES: WorkspaceConfig[] = [
     panelTabs: ['품질', 'MCP', '세션'],
   },
   {
+    /**
+     * 테스트 자동화 (㉯ 영구 자산) — 만든 검증을 지키는 곳.
+     * 자동화 카탈로그(자산)와 그 자산의 상태(회귀 결과·유지보수 큐)를 한 화면에서 본다.
+     * QA 작업 탭이 넘긴 coverage-gap 신호를 받는 쪽 — 채팅·세션 없이 상태저장소만 읽는다.
+     */
+    key: 'auto',
+    path: '/dashboard/auto',
+    label: '테스트 자동화',
+    icon: '⚙️',
+    sidebarLabel: '자산 현황',
+    description: '자동화 카탈로그와 회귀 상태 — /daily-qa 런북을 UI로 (영구 자산 관리)',
+    layout: 'board',
+    defaultAgentMode: 'general',
+    agentModes: ['general'],
+    panelTabs: [],
+  },
+  {
     key: 'receipt',
     path: '/dashboard/receipt',
     label: '인수증 생성',
