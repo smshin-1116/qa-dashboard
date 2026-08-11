@@ -72,6 +72,22 @@ function normalizeHeader(raw: string): keyof TcRow | null {
 }
 
 /**
+ * 마크다운 표의 한 행을 셀 배열로 나눈다.
+ *
+ * ⚠️ `split('|').filter(Boolean)`을 쓰면 안 된다 — 행 앞뒤 파이프의 빈 조각을
+ * 지우려던 것이 **내용이 빈 셀**까지 지워서 컬럼이 한 칸씩 밀린다.
+ * LLM은 반복되는 대분류·중분류를 빈 셀로 두는 습관이 있어(`| TC-002 | | | 모니터링…`)
+ * 실측에서 19건 중 14건이 밀렸다 (2026-08-11 DV-740). 앞뒤 파이프만 잘라내고
+ * 내부 빈 셀은 자리 그대로 보존한다.
+ */
+function splitRow(line: string): string[] {
+  let l = line.trim();
+  if (l.startsWith('|')) l = l.slice(1);
+  if (l.endsWith('|')) l = l.slice(0, -1);
+  return l.split('|').map((c) => c.trim());
+}
+
+/**
  * 어시스턴트 메시지에서 TC 테이블 데이터를 추출합니다.
  * 마크다운 테이블 및 JSON 배열 형식을 지원합니다.
  */
@@ -103,10 +119,7 @@ export function extractTcRows(content: string): TcRow[] {
 
     if (lines.length < 2) continue;
 
-    const headers = lines[0]
-      .split('|')
-      .map((h) => h.trim())
-      .filter(Boolean);
+    const headers = splitRow(lines[0]);
 
     // TC 테이블 여부 확인 (TC-ID 또는 ID 컬럼 포함 필요)
     const hasTcIdCol = headers.some(
@@ -115,10 +128,7 @@ export function extractTcRows(content: string): TcRow[] {
     if (!hasTcIdCol) continue;
 
     lines.slice(1).forEach((row, i) => {
-      const cells = row
-        .split('|')
-        .map((c) => c.trim())
-        .filter(Boolean);
+      const cells = splitRow(row);
 
       const raw: Record<string, string> = {};
       headers.forEach((h, idx) => {
@@ -130,6 +140,65 @@ export function extractTcRows(content: string): TcRow[] {
   }
 
   return allRows;
+}
+
+/**
+ * 표를 **정규화하지 않고** 헤더 그대로 뽑는다.
+ *
+ * `extractTcRows`는 xlsx 내보내기용이라 11컬럼으로 접어버려 그 밖의 컬럼이 사라진다.
+ * 워크스페이스 저장(`/api/workspace/tc`)은 컬럼 고정을 풀기로 했으므로
+ * (2026-08-06 결정 — 티켓마다 필요한 컬럼이 달라 11개로 못 박으면 곧 깨진다)
+ * 저장 경로는 이 함수를 써서 `계정 역할` 같은 임의 컬럼을 `extra`로 넘긴다.
+ */
+export function extractTcRawRows(content: string): Array<Record<string, string>> {
+  const out: Array<Record<string, string>> = [];
+  const tableRegex = /(\|.+\|\n\|[-| :]+\|\n(?:\|.+\|\n?)+)/g;
+  let tableMatch: RegExpExecArray | null;
+
+  while ((tableMatch = tableRegex.exec(content)) !== null) {
+    const lines = tableMatch[1]
+      .split('\n')
+      .filter((line) => line.startsWith('|') && !line.match(/^[\s|:-]+$/));
+    if (lines.length < 2) continue;
+
+    const headers = splitRow(lines[0]);
+    // TC 표가 아닌 일반 표(요약·비교표 등)는 건너뛴다
+    if (!headers.some((h) => h === 'TC-ID' || h === 'ID' || h === 'TC ID')) continue;
+
+    /**
+     * ditto 채우기 — 분류 3컬럼은 빈 셀이 "위와 같음"을 뜻한다 (LLM 표 관행).
+     * 빈 채로 저장하면 카탈로그 후보 좁히기(카테고리 매칭)와 화면 표시가 죽는다.
+     * 나머지 컬럼(비고 등)의 빈 셀은 진짜 빈 값이므로 건드리지 않는다.
+     */
+    const DITTO = new Set(['대분류', '중분류', '소분류']);
+    const prev: Record<string, string> = {};
+
+    for (const row of lines.slice(1)) {
+      const cells = splitRow(row);
+      const raw: Record<string, string> = {};
+      headers.forEach((h, idx) => {
+        // 헤더 이름을 정규화해 저장 API가 아는 키로 맞추되, 모르는 헤더는 원문 그대로 둔다
+        const key = normalizeHeader(h) ?? h;
+        let val = cells[idx] ?? '';
+        if (!val && DITTO.has(key) && prev[key]) val = prev[key];
+        raw[key] = val;
+        if (val && DITTO.has(key)) prev[key] = val;
+      });
+      out.push(raw);
+    }
+  }
+  return out;
+}
+
+/** 세션 전체(어시스턴트 메시지)에서 원본 TC 행을 모은다 */
+export function collectTcRawRows(session: Session | null): Array<Record<string, string>> {
+  if (!session) return [];
+  const rows: Array<Record<string, string>> = [];
+  for (const msg of session.messages) {
+    if (msg.role !== 'assistant') continue;
+    rows.push(...extractTcRawRows(msg.content));
+  }
+  return rows;
 }
 
 function buildRow(raw: Record<string, string>, index: number): TcRow {
