@@ -441,3 +441,12 @@ tsconfig.tsbuildinfo
 
 # 바이너리 산출물
 *.pptx
+
+# 파이프라인 재생용 기록본 (Confluence 기획 내용 포함 — 커밋 금지)
+fixtures/pipeline/
+
+# 워크스페이스 상태 저장소 (로컬 SQLite — 회사 신호·티켓 내용 포함, 커밋 금지)
+data/
+
+# 디버깅 잔재 — 실제 회사 주문 데이터(개인정보) 포함, 커밋 금지
+dv111-*.json

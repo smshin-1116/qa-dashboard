@@ -6,9 +6,12 @@
     "dev": "next dev --turbopack",
     "dev:main": "next dev --turbopack --port 3000",
     "dev:enhancement": "next dev --turbopack --port 3001",
+    "dev:record": "PIPELINE_RECORD=1 next dev --turbopack",
+    "dev:mock": "PIPELINE_MOCK=1 next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "collect": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-hook.mjs scripts/collect.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
