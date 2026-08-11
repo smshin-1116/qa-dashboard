@@ -2,8 +2,15 @@ export type AIModel = 'claude' | 'gemini' | 'codex';
 
 export type AgentMode = 'general' | 'designer' | 'writer' | 'reviewer' | 'fixer';
 
-/** 워크스페이스(화면) 종류 — 세션을 화면별로 분리하는 키. 탭 추가 시 여기에 확장 */
-export type WorkspaceKind = 'tc' | 'analyze' | 'receipt';
+/**
+ * 워크스페이스(화면) 종류 — 세션을 화면별로 분리하는 키.
+ *
+ * `work`(QA 작업)는 2026-08-09에 `tc`(TC 자동화) + `analyze`(기능 분석)를 합친 것이다.
+ * 2026-08-06 확정: 화면을 나누는 축은 "TC냐 아니냐"가 아니라
+ * **일회성 작업(㉮) / 영구 자산(㉯)** 이다. 분석·TC 작성·수행은 전부 ㉮ 한 흐름이므로
+ * 한 화면에 둔다. 기존 세션은 로드 시 자동 이관된다 (`useSessionStore`의 `RENAMED_KINDS`).
+ */
+export type WorkspaceKind = 'today' | 'work' | 'receipt';
 
 export type MessageRole = 'user' | 'assistant';
 
@@ -26,7 +33,7 @@ export interface ChatMessage {
 
 export interface Session {
   id: string;
-  /** 소속 워크스페이스(화면) — 사이드바는 현재 화면의 kind만 노출. 레거시 세션은 로드 시 'tc'로 마이그레이션 */
+  /** 소속 워크스페이스(화면) — 사이드바는 현재 화면의 kind만 노출. 레거시 세션은 로드 시 'work'로 마이그레이션 */
   kind: WorkspaceKind;
   /** 자동 생성된 제목 (첫 사용자 메시지 30자) — customTitle이 없을 때 표시 */
   title: string;

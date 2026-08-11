@@ -27,8 +27,20 @@ function dropDraftIfEmpty(sessions: Session[], candidate: Session | null): Sessi
   return sessions.filter((s) => s.id !== candidate.id);
 }
 
-/** 레거시 세션(kind 미지정)의 기본 워크스페이스 — 앱 본래 정체성인 TC 자동화로 귀속 */
-const LEGACY_KIND: WorkspaceKind = 'tc';
+/** 레거시 세션(kind 미지정)의 기본 워크스페이스 — 분석·TC를 모두 담는 QA 작업으로 귀속 */
+const LEGACY_KIND: WorkspaceKind = 'work';
+
+/**
+ * 이름이 바뀐 워크스페이스 키 매핑.
+ *
+ * 2026-08-09: `TC 자동화`(tc)와 `기능 분석`(analyze)을 **QA 작업**(work) 하나로 합쳤다.
+ * 이 매핑이 없으면 기존 세션의 kind가 어느 화면에도 속하지 않아 사이드바에서 사라진다.
+ * (세션은 화면별 필터로 노출되므로, 값이 안 맞으면 데이터는 남아 있어도 보이지 않는다)
+ */
+const RENAMED_KINDS: Record<string, WorkspaceKind> = {
+  tc: 'work',
+  analyze: 'work',
+};
 
 interface SessionStore {
   /** 모든 워크스페이스의 세션 목록 (사이드바는 activeKind로 필터해서 표시) */
@@ -74,13 +86,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (orphanIds.length > 0) {
       await Promise.all(orphanIds.map((id) => deleteSession(id)));
     }
-    // 레거시 마이그레이션: kind 없는 세션은 기본 워크스페이스로 귀속하고 DB에 반영
+    /**
+     * 레거시 마이그레이션 — DB에 반영해 한 번만 돌게 한다.
+     *   ① kind 없는 세션        → 기본 워크스페이스
+     *   ② 이름이 바뀐 kind      → 새 키 (tc·analyze → work)
+     * 둘 다 처리하지 않으면 해당 세션이 사이드바에서 보이지 않는다.
+     */
     const sessions = all.filter((s) => s.messages.length > 0);
-    const needMigration = sessions.filter((s) => !s.kind);
+    const needMigration = sessions.filter(
+      (s) => !s.kind || s.kind in RENAMED_KINDS,
+    );
     if (needMigration.length > 0) {
       await Promise.all(
         needMigration.map((s) => {
-          s.kind = LEGACY_KIND;
+          s.kind = s.kind ? (RENAMED_KINDS[s.kind] ?? s.kind) : LEGACY_KIND;
           return saveSession(s);
         }),
       );

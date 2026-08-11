@@ -22,7 +22,11 @@ import {
 } from '@/constants/modelSupport';
 import { initAgentMode, persistAgentMode } from '@/constants/agentModes';
 import { getWorkspace } from '@/constants/workspaces';
-import { downloadTcXlsx, hasTcResult } from '@/lib/tcExport';
+import { collectTcRawRows, downloadTcXlsx, hasTcResult } from '@/lib/tcExport';
+import TcPanel from '@/components/dashboard/work/TcPanel';
+import SourceInput from '@/components/dashboard/work/SourceInput';
+import GatePanel from '@/components/dashboard/work/GatePanel';
+import type { Contract, ContractDecision } from '@/lib/workspace/contract';
 import { useMcpStatus } from '@/hooks/useMcpStatus';
 import { useToast } from '@/hooks/useToast';
 import { META_PREFIX, TOOL_PREFIX } from '@/constants/streamProtocol';
@@ -111,6 +115,189 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
   useEffect(() => {
     setTcAvailable(hasTcResult(activeSession));
   }, [activeSession]);
+
+  /**
+   * 파이프라인이 만든 TC를 워크스페이스 DB로 자동 저장한다.
+   *
+   * ── 왜 자동인가 ────────────────────────────────────────────────────
+   * 채팅 메시지 안의 마크다운 표는 **읽을 수만 있다.** 수행 결과(Pass/Fail)를 적거나
+   * 자동화로 넘기려면 행마다 붙일 자리가 필요해서 tc 테이블로 옮겨야 하는데,
+   * 그걸 사람이 [저장] 눌러야 한다면 십중팔구 안 누르고 표만 보고 끝난다.
+   *
+   * ── 덮어쓰기 걱정이 없는 이유 ──────────────────────────────────────
+   * upsertTc가 (work, local_id)로 UPSERT하되 **사람이 넣은 값(result·verdict·
+   * catalog_id·인계시각)은 갱신하지 않는다.** 4단계(작성→리뷰→수정)가 표를 여러 번
+   * 뱉어도 마지막 표가 본문만 갱신하고, 이미 적어둔 Pass는 남는다.
+   *
+   * 저장 자체는 LLM을 부르지 않는다 — 파싱 + INSERT뿐이라 토큰 0.
+   */
+  const savedSigRef = useRef<string>('');
+  useEffect(() => {
+    if (!activeSession) return;
+    const rows = collectTcRawRows(activeSession);
+    if (rows.length === 0) return;
+
+    // 같은 내용을 스트리밍 중 매 렌더마다 POST하지 않도록 지문으로 거른다
+    const sig = `${activeSession.id}:${rows.length}:${JSON.stringify(rows).length}`;
+    if (savedSigRef.current === sig) return;
+    savedSigRef.current = sig;
+
+    void fetch('/api/workspace/tc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        sessionId: activeSession.id,
+        title: activeSession.title,
+        rows,
+      }),
+    })
+      .then(() => setTcSavedAt(Date.now())) // TcPanel 새로고침 신호
+      .catch(() => {
+        // 저장 실패해도 대화는 계속된다 — 다음 렌더에서 재시도되도록 지문을 되돌린다
+        savedSigRef.current = '';
+      });
+  }, [activeSession]);
+
+  /** TC 저장 완료 시각 — 바뀌면 TcPanel이 목록을 다시 읽는다 */
+  const [tcSavedAt, setTcSavedAt] = useState(0);
+
+  /** 진행 카드 접기 (기본 펼침) */
+  const [pipelineOpen, setPipelineOpen] = useState(true);
+  /** 입력 카드 → 파이프라인 실행 요청 (seq가 바뀔 때마다 1회 실행) */
+  const [pipelineRun, setPipelineRun] = useState<{ url: string; seq: number } | null>(null);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
+
+  /** ⓪흡수·①교차분석 상태 — 계약은 서버(tc_work.contract)가 원본이다 */
+  const [absorb, setAbsorb] = useState<{
+    status: 'idle' | 'running' | 'ready' | 'fallback';
+    contract: Contract | null;
+    reason: string | null;
+  }>({ status: 'idle', contract: null, reason: null });
+
+  // 세션을 열면 저장된 계약을 복원한다 — 게이트가 새로고침에 살아남는 이유
+  useEffect(() => {
+    const id = activeSession?.id;
+    if (!id || workspace.layout !== 'pipeline') return;
+    let alive = true;
+    void fetch(`/api/workspace/absorb?sessionId=${encodeURIComponent(id)}`, { cache: 'no-store' })
+      .then((r) => r.json() as Promise<{ contract: Contract | null }>)
+      .then((b) => {
+        if (!alive) return;
+        setAbsorb(
+          b.contract
+            ? { status: 'ready', contract: b.contract, reason: null }
+            : { status: 'idle', contract: null, reason: null },
+        );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession?.id]);
+
+  /** 입력 카드 → ⓪①(Codex). 실패하면 시안의 폴백: Claude 단독 채팅으로 잇는다 */
+  const handleAbsorb = useCallback(
+    async (urls: string[], text: string) => {
+      let session = activeSession;
+      if (!session) session = await createSession(activeModel, workspaceKey);
+
+      // 제목: 첫 티켓 키 > 첫 URL > 텍스트 앞머리
+      const title =
+        urls.find((u) => /\/browse\/[A-Z][A-Z0-9]+-\d+/.test(u))?.match(/[A-Z][A-Z0-9]+-\d+/)?.[0] ??
+        urls[0] ??
+        text.slice(0, 40);
+
+      setAbsorb({ status: 'running', contract: null, reason: null });
+      try {
+        const res = await fetch('/api/workspace/absorb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'absorb', sessionId: session.id, title, urls, text }),
+        });
+        const body = (await res.json()) as {
+          engine: 'codex' | 'fallback';
+          contract: Contract | null;
+          fallbackReason: string | null;
+        };
+        if (body.contract) {
+          setAbsorb({ status: 'ready', contract: body.contract, reason: null });
+        } else {
+          // 폴백 — ⓪①을 Claude 대화로. 배지는 GatePanel이 표시하고 작업은 멈추지 않는다
+          setAbsorb({ status: 'fallback', contract: null, reason: body.fallbackReason });
+          await handleSend(
+            [urls.join('\n'), text].filter(Boolean).join('\n\n') +
+              '\n\n위 소스들을 전부 읽고 요구사항·모순·누락을 분석해줘.',
+            [],
+          );
+        }
+      } catch (e) {
+        setAbsorb({
+          status: 'fallback',
+          contract: null,
+          reason: e instanceof Error ? e.message : '흡수 요청 실패',
+        });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSession, activeModel, workspaceKey, createSession],
+  );
+
+  /**
+   * ② 게이트 통과 — 답변을 전제로 고정하고 ③ 설계를 시작한다.
+   *
+   * Claude에게는 **원문이 아니라 계약의 요약·요구·전제만** 보낸다.
+   * 원문 재조회를 막는 것이 "읽기와 분석 분리"의 토큰 절감 지점이다.
+   */
+  const handleGateProceed = useCallback(
+    async (decisions: ContractDecision[]) => {
+      const c = absorb.contract;
+      const session = activeSession;
+      if (!c || !session) return;
+
+      await fetch('/api/workspace/absorb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'decide', sessionId: session.id, decisions }),
+      });
+      setAbsorb((p) => (p.contract ? { ...p, contract: { ...p.contract, decisions } } : p));
+
+      // PR·코드 소스는 별도 블록으로 — 기대결과를 구현 사실에 붙들어 매는 근거다
+      const prSources = c.sources.filter((s) => s.type === 'PR' || s.type === '코드');
+      const docSources = c.sources.filter((s) => s.type !== 'PR' && s.type !== '코드');
+
+      const msg = [
+        '[확인 게이트 통과 — 아래 전제로 고정됨. 전제와 어긋나는 요구는 제외할 것]',
+        ...decisions.map((d, i) => `전제 ${i + 1}. ${d.question} → ${d.answer}`),
+        '',
+        '[소스 요약 — ⓪ 개별 흡수 결과. 티켓·기획서 원문을 다시 조회하지 말 것]',
+        ...docSources.map((s) => `- ${s.id}(${s.type}): ${s.summary}`),
+        ...(prSources.length
+          ? [
+              '',
+              '[구현 근거 — 티켓에 연결된 PR·코드를 Codex가 검토한 결과]',
+              ...prSources.map((s) => `- ${s.id}: ${s.summary}`),
+              '기대결과가 구현과 어긋나지 않는지 이 근거로 재검증하라.',
+              '요약만으로 판단이 안 서는 지점은 gh 조회(read-only: gh pr view/diff, gh api)로',
+              '직접 확인해도 된다 — 단 clone·push·파일 수정은 금지다.',
+            ]
+          : []),
+        '',
+        `[확정 요구 ${c.requirements.length}건]`,
+        ...c.requirements.map((r) => `- ${r.id}: ${r.text} (출처 ${r.from.join('·')})`),
+        ...(c.impacts.tc_ids.length
+          ? ['', `[기존 자동화 영향권] ${c.impacts.tc_ids.join(' · ')} — 중복 TC를 만들지 말 것`]
+          : []),
+        '',
+        '위 전제와 요구만으로 TC를 설계하고, 11컬럼 마크다운 표(TC-ID·대분류·중분류·소분류·검증단계·전제조건·테스트 스텝·기대결과·플랫폼·결과·비고)로 작성해줘.',
+      ].join('\n');
+
+      await handleSend(msg, []);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [absorb.contract, activeSession],
+  );
 
   const handleNewSession = useCallback(async () => {
     await createSession(activeModel, workspaceKey);
@@ -334,41 +521,165 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           />
 
           <div className="flex flex-col flex-1 overflow-hidden">
-            {/* 기능 분석(chat 레이아웃): 중앙 상단에 MCP 연동 칩바 */}
-            {workspace.layout === 'chat' && <McpStatusBar mcpStatus={mcpStatus} />}
-            {/* TC 자동화(pipeline 레이아웃): 중앙 상단에 파이프라인 실행기 */}
-            {workspace.layout === 'pipeline' && (
-              <div className="flex-shrink-0 max-h-[44%] overflow-y-auto border-b border-[#1E2535] bg-[#111520] px-4 py-3">
-                <div className="text-[13px] font-semibold text-slate-200 mb-2.5">파이프라인 실행</div>
-                <PipelineRunner
+            {workspace.layout === 'pipeline' ? (
+              /*
+                QA 작업 — 시안의 한 페이지 세로 스크롤 (2026-08-10 재구성).
+
+                시안에는 하단 채팅 입력도, 대화/수행 탭도 없다. 입력은 상단 카드
+                하나로 들어오고 아래로 진행 → 대화 → TC → 작업 종료가 이어진다.
+                (탭 분리·하단 입력은 시안 이탈로 지적받아 제거)
+              */
+              <div className="flex-1 overflow-y-auto">
+                <div className="max-w-6xl mx-auto w-full p-3.5 flex flex-col gap-3.5">
+                  {/* ── 입력 — 소스 여러 개 (유일한 입력 지점) ─────────── */}
+                  <SourceInput
+                    onAbsorb={(urls, text) => void handleAbsorb(urls, text)}
+                    onRunPipeline={(url) => setPipelineRun((p) => ({ url, seq: (p?.seq ?? 0) + 1 }))}
+                    busy={isStreaming || pipelineRunning || absorb.status === 'running'}
+                    busyLabel={absorb.status === 'running' ? '⓪① Codex 분석 중…' : undefined}
+                  />
+
+                  {/* ── 진행 · 모델 분담 ─────────────────────────────── */}
+                  <div className="rounded-[13px] border border-[#1E2535] bg-[#161B27] p-3.5">
+                    <button
+                      onClick={() => setPipelineOpen((v) => !v)}
+                      className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100 hover:text-white"
+                    >
+                      <span className="text-[10px] text-slate-500">{pipelineOpen ? '▾' : '▸'}</span>
+                      진행 · 모델 분담
+                    </button>
+                    {/*
+                      시안의 owner-band — ⓪① Codex · ② 사람 · ③~⑦ Claude.
+                      ⓪①②는 실제 진행 상태를 따라간다 (2026-08-11 구현):
+                      흡수 중 → 진행색 / 계약 있음 → 완료 / 전제 고정 → ② 완료.
+                    */}
+                    <div className="flex items-center gap-1 flex-wrap mt-2 mb-2.5 font-mono text-[10px]">
+                      {(
+                        [
+                          ['⓪ 📥 개별 흡수', absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait'],
+                          ['① 🔀 교차 분석', absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait'],
+                          ['② ✋ 확인', (absorb.contract?.decisions.length ?? 0) > 0 ? 'done' : absorb.contract ? 'run' : 'wait'],
+                        ] as const
+                      ).map(([label, st]) => (
+                        <span
+                          key={label}
+                          className={[
+                            'px-2 py-0.5 rounded border',
+                            st === 'done'
+                              ? 'border-[#10A37F66] bg-[#10A37F1c] text-[#10A37F]'
+                              : st === 'run'
+                                ? 'border-[#FBBF2466] bg-[#FBBF241c] text-[#FBBF24]'
+                                : 'border-[#2A3347] bg-[#0F1520] text-slate-600',
+                          ].join(' ')}
+                          title={
+                            st === 'wait'
+                              ? 'Codex 세션 1개가 담당 — 입력 카드에서 시작'
+                              : st === 'run'
+                                ? '진행 중'
+                                : '완료'
+                          }
+                        >
+                          {label}
+                        </span>
+                      ))}
+                      <span className="text-slate-600">→</span>
+                      <span className="px-2 py-0.5 rounded border border-[#4F46E566] bg-[#1E1A3A] text-indigo-300">
+                        ③~⑥ 설계·작성·리뷰·수정 (아래)
+                      </span>
+                      <span className="text-slate-600">→</span>
+                      <span className="px-2 py-0.5 rounded border border-[#2A3347] bg-[#0F1520] text-slate-400">
+                        ⑦ ✅ 수행 (TC 카드)
+                      </span>
+                    </div>
+                    {pipelineOpen && (
+                      <PipelineRunner
+                        session={activeSession}
+                        activeAgentMode={activeAgentMode}
+                        onAgentModeChange={handleAgentModeChange}
+                        hideInput
+                        requestRun={pipelineRun}
+                        onRunningChange={setPipelineRunning}
+                      />
+                    )}
+                  </div>
+
+                  {/* ── ⓪ 소스 보드 · ① 교차 분석 · ② 확인 게이트 ────── */}
+                  {absorb.status === 'running' && (
+                    <div className="rounded-[13px] border border-[#1E2535] bg-[#161B27] p-3.5 flex items-center gap-2.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#10A37F] animate-pulse" />
+                      <span className="text-[12px] text-slate-300">
+                        ⓪ 개별 흡수 · ① 교차 분석 — Codex 세션 1개로 처리 중 (Claude 토큰 0)
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-600 ml-auto">
+                        소스 수에 따라 1~5분
+                      </span>
+                    </div>
+                  )}
+                  {(absorb.status === 'ready' || absorb.status === 'fallback') && (
+                    <GatePanel
+                      contract={absorb.contract}
+                      engine={absorb.status === 'ready' ? 'codex' : 'fallback'}
+                      fallbackReason={absorb.reason}
+                      busy={isStreaming}
+                      onProceed={(decisions) => void handleGateProceed(decisions)}
+                    />
+                  )}
+
+                  {/* ── 분석 대화 — 응답이 흐르는 곳 (입력은 상단 카드) ── */}
+                  {((activeSession?.messages.length ?? 0) > 0 || isStreaming) && (
+                    <div className="h-[46vh] flex flex-col rounded-[13px] border border-[#1E2535] overflow-hidden">
+                      <ChatArea
+                        session={activeSession}
+                        isStreaming={isStreaming && streamingSessionId === activeSession?.id}
+                        streamingContent={streamingContent}
+                        toolStatus={toolStatus}
+                        hasTcResult={tcAvailable}
+                        onDownloadXlsx={handleDownloadXlsx}
+                      />
+                    </div>
+                  )}
+
+                  {/* ── ③~⑥ TC 카드 + 작업 종료 — TC 없으면 null ─────── */}
+                  <TcPanel
+                    session={activeSession}
+                    refreshKey={tcSavedAt}
+                    onDownloadXlsx={handleDownloadXlsx}
+                  />
+                </div>
+              </div>
+            ) : (
+              /* chat 레이아웃 (기타 워크스페이스) — 기존 구조 유지 */
+              <>
+                {workspace.layout === 'chat' && <McpStatusBar mcpStatus={mcpStatus} />}
+                <ChatArea
                   session={activeSession}
+                  isStreaming={isStreaming && streamingSessionId === activeSession?.id}
+                  streamingContent={streamingContent}
+                  toolStatus={toolStatus}
+                  hasTcResult={tcAvailable}
+                  onDownloadXlsx={handleDownloadXlsx}
+                />
+                <ChatInput
+                  key={activeSession?.id ?? 'none'}
+                  activeModel={activeModel}
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  isStreaming={isStreaming && streamingSessionId === activeSession?.id}
+                  disabled={isStreaming}
                   activeAgentMode={activeAgentMode}
                   onAgentModeChange={handleAgentModeChange}
                 />
-              </div>
+              </>
             )}
-            <ChatArea
-              session={activeSession}
-              isStreaming={isStreaming && streamingSessionId === activeSession?.id}
-              streamingContent={streamingContent}
-              toolStatus={toolStatus}
-              hasTcResult={tcAvailable}
-              onDownloadXlsx={handleDownloadXlsx}
-            />
-            <ChatInput
-              key={activeSession?.id ?? 'none'}
-              activeModel={activeModel}
-              onSend={handleSend}
-              onStop={handleStop}
-              isStreaming={isStreaming && streamingSessionId === activeSession?.id}
-              disabled={isStreaming}
-              activeAgentMode={activeAgentMode}
-              onAgentModeChange={handleAgentModeChange}
-            />
           </div>
 
-          {/* 우측: TC는 품질 리포트 고정, 그 외는 탭 패널 */}
-          {workspace.layout === 'pipeline' ? (
+          {/*
+            우측 패널.
+            panelTabs가 있으면 탭 패널, 비어 있으면 품질 리포트를 고정 노출한다.
+            (QA 작업은 분석·TC를 한 화면에서 하므로 품질만 고정하면 MCP 상태를 볼 수 없다
+             — 2026-08-09 두 탭 통합 시 레이아웃이 아니라 panelTabs 기준으로 바꿨다)
+          */}
+          {workspace.panelTabs.length === 0 ? (
             <QualityPanel session={activeSession} />
           ) : (
             <RightPanel

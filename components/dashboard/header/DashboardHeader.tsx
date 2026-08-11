@@ -14,6 +14,14 @@ interface DashboardHeaderProps {
   claudeVersion?: string | null;
   /** 현재 워크스페이스 — 헤더 탭 활성 표시 */
   activeWorkspaceKey: WorkspaceKind;
+  /**
+   * 🔔 알림 건수. 0이면 배지를 숨긴다.
+   *
+   * 알림을 워크스페이스 탭이 아니라 헤더 우측에 둔 이유:
+   * "오늘 할 일"은 오늘 처리할 것, "알림"은 며칠째 정체된 것으로 성격이 달라
+   * 섞으면 오늘 할 일이 잔소리로 오염된다. 탭 수도 늘지 않는다.
+   */
+  noticeCount?: number;
 }
 
 export default function DashboardHeader({
@@ -21,6 +29,7 @@ export default function DashboardHeader({
   onModelChange,
   claudeVersion,
   activeWorkspaceKey,
+  noticeCount = 0,
 }: DashboardHeaderProps) {
   return (
     <header className="relative flex items-center justify-between px-5 h-14 bg-[#161B27] border-b border-[#1E2535] flex-shrink-0 gap-4">
@@ -58,8 +67,24 @@ export default function DashboardHeader({
         })}
       </nav>
 
-      {/* Right: AI 모델 + 설정 */}
+      {/* Right: 알림 + AI 모델 + 설정 */}
       <div className="flex items-center gap-2 flex-shrink-0">
+        {/* 🔔 알림 — 탭이 아니라 별도 진입점 (며칠째 정체된 느린 신호) */}
+        {noticeCount > 0 && (
+          <Link
+            href="/dashboard/notice"
+            title={`정체·방치 신호 ${noticeCount}건 (오늘 할 일과 분리)`}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10.5px] font-semibold
+                       bg-[#0F1520] border border-[#2A3347] text-slate-400
+                       hover:text-slate-200 hover:border-indigo-700 transition-colors"
+          >
+            <span>🔔</span>
+            <span className="font-mono tabular-nums px-1 rounded bg-amber-400 text-[#0B0F17] text-[9px] font-bold">
+              {noticeCount}
+            </span>
+          </Link>
+        )}
+
         <div className="flex items-center bg-[#0F1520] border border-[#2A3347] rounded-lg p-[3px] gap-0.5">
           <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide px-2 border-r border-[#2A3347] mr-0.5 whitespace-nowrap">
             AI

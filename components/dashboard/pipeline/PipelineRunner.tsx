@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import type { Session, AgentMode } from '@/types/session';
 import { useSessionStore } from '@/stores/useSessionStore';
 import type { PipelineEvent } from '@/app/api/pipeline/run/route';
@@ -56,10 +56,22 @@ export default function PipelineRunner({
   session,
   activeAgentMode,
   onAgentModeChange,
+  hideInput = false,
+  requestRun = null,
+  onRunningChange,
 }: {
   session: Session | null;
   activeAgentMode: AgentMode;
   onAgentModeChange: (mode: AgentMode) => void;
+  /**
+   * URL 입력을 숨긴다 — QA 작업 화면은 상단 "입력 — 소스 여러 개" 카드가
+   * 유일한 입력이라(시안), 여기에 입력이 또 있으면 입력이 두 곳이 된다.
+   */
+  hideInput?: boolean;
+  /** 외부(입력 카드)에서 실행 요청 — seq가 바뀔 때마다 url로 실행한다 */
+  requestRun?: { url: string; seq: number } | null;
+  /** 실행 상태 통지 — 입력 카드가 실행 중 전송을 막는 데 쓴다 */
+  onRunningChange?: (running: boolean) => void;
 }) {
   const { addMessage, createSession, updateClaudeSessionId } = useSessionStore();
 
@@ -69,6 +81,9 @@ export default function PipelineRunner({
     STAGES.map(() => ({ status: 'waiting', liveContent: '', toolLabel: '' }))
   );
   const [errorMsg, setErrorMsg] = useState('');
+  // 재생(mock) 모드로 응답이 오면 서버가 start 이벤트에 표시해줍니다.
+  // 저장본을 보고 있는 줄 모르고 결과를 신뢰하는 상황을 막기 위해 화면에 명시합니다.
+  const [mockInfo, setMockInfo] = useState<{ recordedAt?: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // 어시스턴트 메시지 전체 합산 (수동 진행 감지용)
@@ -93,11 +108,15 @@ export default function PipelineRunner({
     setRunStates((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
   }, []);
 
-  const runPipeline = useCallback(async () => {
-    if (!confluenceUrl.trim()) return;
+  const runPipeline = useCallback(async (urlOverride?: string) => {
+    // 외부 요청은 state 반영을 기다리지 않고 인자로 받는다 (state는 표시용으로만 갱신)
+    const targetUrl = (urlOverride ?? confluenceUrl).trim();
+    if (!targetUrl) return;
+    if (urlOverride) setConfluenceUrl(urlOverride);
 
     setPipelineStatus('running');
     setErrorMsg('');
+    setMockInfo(null);
     setRunStates(STAGES.map(() => ({ status: 'waiting', liveContent: '', toolLabel: '' })));
 
     // 세션 확보
@@ -113,7 +132,7 @@ export default function PipelineRunner({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          confluenceUrl: confluenceUrl.trim(),
+          confluenceUrl: targetUrl,
           // 파이프라인은 항상 새 세션으로 시작 (채팅 세션과 독립)
         }),
         signal: abortRef.current.signal,
@@ -137,6 +156,10 @@ export default function PipelineRunner({
           if (!line.startsWith('data: ')) continue;
           try {
             const event: PipelineEvent = JSON.parse(line.slice(6));
+
+            if (event.type === 'start' && event.mock) {
+              setMockInfo({ recordedAt: event.recordedAt });
+            }
 
             if (event.type === 'stage_start') {
               updateStage(event.stageIndex, { status: 'running', liveContent: '', toolLabel: '' });
@@ -199,26 +222,57 @@ export default function PipelineRunner({
   const stopPipeline = useCallback(() => {
     abortRef.current?.abort();
     setPipelineStatus('idle');
+    setMockInfo(null);
     setRunStates(STAGES.map(() => ({ status: 'waiting', liveContent: '', toolLabel: '' })));
   }, []);
 
   const isRunning = pipelineStatus === 'running';
 
+  // 외부(입력 카드) 실행 요청 — seq가 바뀔 때만 새 요청으로 취급한다
+  const lastRunSeq = useRef(0);
+  useEffect(() => {
+    if (!requestRun || requestRun.seq === lastRunSeq.current) return;
+    lastRunSeq.current = requestRun.seq;
+    void runPipeline(requestRun.url);
+  }, [requestRun, runPipeline]);
+
+  useEffect(() => {
+    onRunningChange?.(isRunning);
+  }, [isRunning, onRunningChange]);
+
   return (
     <div className="space-y-3">
-      {/* URL 입력 + 실행 버튼 */}
+      {/* URL 입력 + 실행 버튼 — hideInput이면 상태 표시만 남긴다 (입력은 상단 카드 한 곳) */}
       <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">자동 실행</p>
-        <input
-          type="text"
-          value={confluenceUrl}
-          // onChange만으로 붙여넣기까지 처리됨. 과거 onPaste를 함께 두면
-          // 기본 붙여넣기 + state 세팅이 겹쳐 값이 중복 입력되는 버그가 있었음.
-          onChange={(e) => setConfluenceUrl(e.target.value)}
-          placeholder="Confluence URL 붙여넣기..."
-          disabled={isRunning}
-          className="w-full bg-[#161B27] border border-[#2A3347] rounded-md px-2.5 py-1.5 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
-        />
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            {hideInput ? '자동 실행 — 상단 입력 카드에서 시작' : '자동 실행'}
+          </p>
+          {mockInfo && (
+            <span
+              className="text-[9px] font-semibold text-amber-400 bg-amber-900/25 border border-amber-800/40 rounded px-1.5 py-0.5"
+              title={
+                mockInfo.recordedAt
+                  ? `${new Date(mockInfo.recordedAt).toLocaleString('ko-KR')} 기록본 재생 중 (실제 호출 없음)`
+                  : '기록본 재생 중 (실제 호출 없음)'
+              }
+            >
+              재생 모드 · 실제 호출 없음
+            </span>
+          )}
+        </div>
+        {!hideInput && (
+          <input
+            type="text"
+            value={confluenceUrl}
+            // onChange만으로 붙여넣기까지 처리됨. 과거 onPaste를 함께 두면
+            // 기본 붙여넣기 + state 세팅이 겹쳐 값이 중복 입력되는 버그가 있었음.
+            onChange={(e) => setConfluenceUrl(e.target.value)}
+            placeholder="Confluence URL 붙여넣기..."
+            disabled={isRunning}
+            className="w-full bg-[#161B27] border border-[#2A3347] rounded-md px-2.5 py-1.5 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
+          />
+        )}
         {isRunning ? (
           <button
             onClick={stopPipeline}
@@ -227,13 +281,15 @@ export default function PipelineRunner({
             ■ 중단
           </button>
         ) : (
-          <button
-            onClick={runPipeline}
-            disabled={!confluenceUrl.trim()}
-            className="w-full py-1.5 rounded-md bg-indigo-600 text-[11px] font-semibold text-white hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            ▶ 파이프라인 자동 실행
-          </button>
+          !hideInput && (
+            <button
+              onClick={() => void runPipeline()}
+              disabled={!confluenceUrl.trim()}
+              className="w-full py-1.5 rounded-md bg-indigo-600 text-[11px] font-semibold text-white hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              ▶ 파이프라인 자동 실행
+            </button>
+          )
         )}
         {pipelineStatus === 'done' && (
           <p className="text-[10px] text-emerald-400 text-center mt-1.5">✓ 파이프라인 완료 — TC 다운로드 가능</p>
