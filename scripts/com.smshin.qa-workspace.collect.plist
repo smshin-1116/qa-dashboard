@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  QA Workspace 아침 수집 — launchd LaunchAgent
+
+  평일 08:40 (KST, 로컬 시각)에 scripts/morning-collect.sh 를 실행한다.
+
+  ── 왜 cron이 아니라 launchd 인가 ─────────────────────────────────────
+  맥북이 잠들어 있으면 cron은 그 회차를 건너뛴다. launchd는 깨어난 직후
+  놓친 실행을 보충하므로(StartCalendarInterval), 출근해서 뚜껑을 열었을 때
+  수집이 돌아간다.
+
+  ── 왜 08:40 인가 ─────────────────────────────────────────────────────
+    08:10  stage-regression 시작 (GH Actions cron, 현행 유지)
+    ~08:13 종료 (실측 2m50s · 워크플로 타임아웃은 20분)
+    08:40  수집 — 회귀가 늦어져도 그날 아침 결과를 확실히 잡는 30분 여유
+    09:00  출근 — 브리핑이 이미 준비된 상태
+
+  출근이 09시이므로 **GH Actions cron을 앞당길 필요가 없다.**
+  (설계 초안에 있던 "stage-regression 07:30으로 이동" 전제는 철회)
+
+  ── 설치 ──────────────────────────────────────────────────────────────
+    cp scripts/com.smshin.qa-workspace.collect.plist ~/Library/LaunchAgents/
+    launchctl load  ~/Library/LaunchAgents/com.smshin.qa-workspace.collect.plist
+  ── 제거 ──────────────────────────────────────────────────────────────
+    launchctl unload ~/Library/LaunchAgents/com.smshin.qa-workspace.collect.plist
+  ── 즉시 1회 실행 (설치 확인용) ───────────────────────────────────────
+    launchctl start com.smshin.qa-workspace.collect
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.smshin.qa-workspace.collect</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/smshin/Projects/qa-dashboard/scripts/morning-collect.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/smshin/Projects/qa-dashboard</string>
+
+  <!-- 평일(월~금) 08:40. Weekday 1=월 … 5=금 -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>40</integer></dict>
+  </array>
+
+  <!-- launchd 자체 표준출력/에러 (스크립트 로그와 별개, 배관 문제 진단용) -->
+  <key>StandardOutPath</key>
+  <string>/Users/smshin/Projects/qa-dashboard/data/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/smshin/Projects/qa-dashboard/data/logs/launchd.err.log</string>
+
+  <!-- 로그인 시 즉시 실행하지 않는다 (예약 시각에만) -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
