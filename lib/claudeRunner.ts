@@ -8,6 +8,16 @@ export interface ClaudeRunOptions {
   message: string;
   systemPrompt: string;
   claudeSessionId?: string | null;
+  /**
+   * MCP 서버를 붙이지 않고 실행합니다.
+   * 외부 조회가 전혀 필요 없는 단계(TC 작성/수정)에서 툴 스키마와
+   * 불필요한 외부 호출 가능성을 함께 제거하기 위한 옵션입니다.
+   *
+   * 주의: MCP 툴 목록은 프롬프트 맨 앞에 렌더링되므로, 같은 세션을
+   * 이어서 쓰는 턴들 사이에서는 이 값을 바꾸지 마세요. 툴 목록이 달라지면
+   * 캐시된 프리픽스가 전부 무효화되어 세션 재사용 이득이 사라집니다.
+   */
+  disableMcp?: boolean;
   onChunk?: (text: string) => void;
   onTool?: (label: string) => void;
 }
@@ -37,7 +47,7 @@ function getToolLabel(name: string): string {
  */
 export function runClaude(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
   return new Promise((resolve, reject) => {
-    const { message, systemPrompt, claudeSessionId, onChunk, onTool } = options;
+    const { message, systemPrompt, claudeSessionId, disableMcp, onChunk, onTool } = options;
 
     const args: string[] = [
       '-p', message,
@@ -47,6 +57,10 @@ export function runClaude(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
       '--dangerously-skip-permissions',
       '--append-system-prompt', systemPrompt,
     ];
+
+    if (disableMcp) {
+      args.push('--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}');
+    }
 
     if (claudeSessionId) {
       args.push('--resume', claudeSessionId);
