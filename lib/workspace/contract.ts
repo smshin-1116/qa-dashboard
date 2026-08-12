@@ -181,6 +181,28 @@ export const CONTRACT_JSON_SCHEMA = {
  * 위반 목록을 돌려주고, 비어 있으면 통과다. 위반은 그대로 Codex 재시도
  * 프롬프트에 들어가므로 **무엇이 어디서 틀렸는지** 특정해서 적는다.
  */
+/**
+ * 계약 정규화 — 검증 **전에** 치명적이지 않은 흠을 조용히 고친다.
+ *
+ * codex가 같은 PR을 두 번 넣는 일이 있다(실측 2026-08-12: `PR#2820` 중복).
+ * 중복 id는 화면 key 충돌을 일으키지만 분석 자체를 못 쓰게 만들 정도는 아니다.
+ * 이를 검증 실패로 처리하면 재시도·폴백으로 흡수 전체가 무너지므로,
+ * **첫 항목만 남기고 중복을 제거**해 통과시킨다(등장 순서 유지).
+ */
+export function normalizeContract(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null) return raw;
+  const c = raw as Contract;
+  if (Array.isArray(c.sources)) {
+    const seen = new Set<string>();
+    c.sources = c.sources.filter((s) => s && !seen.has(s.id) && seen.add(s.id) != null);
+  }
+  if (Array.isArray(c.requirements)) {
+    const seen = new Set<string>();
+    c.requirements = c.requirements.filter((r) => r && !seen.has(r.id) && seen.add(r.id) != null);
+  }
+  return c;
+}
+
 export function validateContract(raw: unknown): { contract: Contract | null; violations: string[] } {
   const v: string[] = [];
   if (typeof raw !== 'object' || raw === null) {

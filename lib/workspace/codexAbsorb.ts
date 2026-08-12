@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CONTRACT_JSON_SCHEMA, validateContract, type Contract } from './contract';
+import { CONTRACT_JSON_SCHEMA, normalizeContract, validateContract, type Contract } from './contract';
 import { loadCatalog, titleCoverage } from './catalog';
 
 const execFileAsync = promisify(execFile);
@@ -166,7 +166,7 @@ export async function absorbWithCodex(input: AbsorbInput): Promise<AbsorbResult>
     try {
       const first = await runCodexOnce(buildPrompt(input), workDir);
       totalTokens += first.tokensUsed ?? 0;
-      const v1 = validateContract(first.raw);
+      const v1 = validateContract(normalizeContract(first.raw));
       if (v1.contract) {
         fillImpacts(v1.contract);
         return { engine: 'codex', contract: v1.contract, tokensUsed: totalTokens };
@@ -186,7 +186,7 @@ export async function absorbWithCodex(input: AbsorbInput): Promise<AbsorbResult>
     try {
       const second = await runCodexOnce(buildPrompt(input, violations), workDir);
       totalTokens += second.tokensUsed ?? 0;
-      const v2 = validateContract(second.raw);
+      const v2 = validateContract(normalizeContract(second.raw));
       if (v2.contract) {
         fillImpacts(v2.contract);
         return { engine: 'codex', contract: v2.contract, tokensUsed: totalTokens };

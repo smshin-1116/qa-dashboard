@@ -154,8 +154,9 @@ export default function GatePanel({
               </tr>
             </thead>
             <tbody>
-              {contract.sources.map((s) => (
-                <tr key={s.id} className="border-b last:border-b-0" style={{ borderColor: C.line }}>
+              {contract.sources.map((s, i) => (
+                // key에 인덱스를 병용 — codex가 같은 id를 두 번 내도 화면이 안 깨지게 (2026-08-12)
+                <tr key={`${s.id}-${i}`} className="border-b last:border-b-0" style={{ borderColor: C.line }}>
                   <Td mono>
                     <span style={{ color: s.type === '버그' ? C.crit : C.accent }}>{s.id}</span>
                   </Td>
