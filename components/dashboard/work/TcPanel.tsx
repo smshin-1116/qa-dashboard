@@ -133,11 +133,26 @@ export default function TcPanel({
   session,
   refreshKey = 0,
   onDownloadXlsx,
+  onRunTc,
+  running = false,
 }: {
   session: Session | null;
   /** 저장이 끝났을 때 바뀌는 값 — 목록을 다시 읽는 트리거 */
   refreshKey?: number;
   onDownloadXlsx: () => void;
+  /** 선택 TC를 Claude(Playwright)로 자동 수행 — 결과는 부모가 파싱해 기입한다 */
+  onRunTc?: (
+    tcs: Array<{
+      localId: string;
+      subCategory: string | null;
+      phase: string | null;
+      precondition: string | null;
+      steps: string | null;
+      expected: string | null;
+    }>,
+  ) => Promise<void>;
+  /** 수행/스트리밍 중 — 버튼 비활성 */
+  running?: boolean;
 }) {
   const sessionId = session?.id ?? null;
 
@@ -199,6 +214,23 @@ export default function TcPanel({
     setFlash({ tone, text });
     setTimeout(() => setFlash(null), 7000);
   };
+
+  /** 선택(picked) 또는 전체 TC를 자동 수행에 넘긴다 */
+  function runTc(scope: 'picked' | 'all') {
+    if (!onRunTc) return;
+    const targets = scope === 'all' ? tcs : tcs.filter((t) => picked.has(t.id));
+    if (targets.length === 0) return;
+    void onRunTc(
+      targets.map((t) => ({
+        localId: t.localId,
+        subCategory: t.subCategory,
+        phase: t.phase,
+        precondition: t.precondition,
+        steps: t.steps,
+        expected: t.expected,
+      })),
+    );
+  }
 
   async function setResult(tc: Tc, result: Result) {
     const prevResult = tc.result;
@@ -382,18 +414,31 @@ export default function TcPanel({
               ③~⑥ TC 작성 · ⑦ 수행
             </div>
             <div className="text-[11px] mt-0.5" style={{ color: C.tx3 }}>
-              컬럼은 <b style={{ color: C.tx2 }}>고정 11개가 아니라 상황에 맞게</b> · ID는{' '}
-              <b style={{ color: C.tx2 }}>이 작업 안에서만 유효한 일련번호</b> · 수행 결과는{' '}
-              <b style={{ color: C.tx2 }}>사람이 기입</b>
+              컬럼은 <b style={{ color: C.tx2 }}>고정 11개가 아니라 상황에 맞게</b> · 수행은{' '}
+              <b style={{ color: C.tx2 }}>[수행] 버튼으로 stage 자동 실행</b> 또는 결과 직접 기입
             </div>
           </div>
           <div className="flex gap-1.5 flex-shrink-0">
+            {onRunTc && (
+              <>
+                <Btn
+                  pri
+                  onClick={() => runTc('picked')}
+                  disabled={running || picked.size === 0}
+                  title="체크한 TC를 Playwright로 stage에서 자동 수행"
+                >
+                  {running ? '수행 중…' : `▶ 선택 수행${picked.size ? ` ${picked.size}` : ''}`}
+                </Btn>
+                <Btn
+                  onClick={() => runTc('all')}
+                  disabled={running || tcs.length === 0}
+                  title="전체 TC를 stage에서 자동 수행"
+                >
+                  전체 수행
+                </Btn>
+              </>
+            )}
             <Btn onClick={onDownloadXlsx}>XLSX</Btn>
-            <Btn
-              onClick={() => say('info', '우측 품질 패널의 "Sheets 내보내기"를 사용한다')}
-            >
-              Sheets
-            </Btn>
             <Btn onClick={() => void openClose()} disabled={busy}>
               티켓 코멘트
             </Btn>
@@ -999,16 +1044,19 @@ function Btn({
   onClick,
   disabled,
   pri,
+  title,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   pri?: boolean;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] border text-[10.5px] font-semibold
                  transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
       style={

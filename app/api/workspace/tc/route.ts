@@ -152,6 +152,15 @@ interface ResultBody {
   id: number;
   result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test';
 }
+/**
+ * 자동 수행 결과 일괄 기입 — Claude가 stage에서 수행한 결과를 파싱해 한 번에 넣는다.
+ * local_id(TC-01)로 매칭한다 — 응답 표는 local_id를 쓰기 때문. 사유(note)도 함께 저장.
+ */
+interface AutoResultsBody {
+  action: 'auto-results';
+  sessionId: string;
+  results: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }>;
+}
 interface CandidatesBody {
   action: 'candidates';
   ids: number[];
@@ -188,6 +197,7 @@ interface CloseBody {
 type Body =
   | SaveBody
   | ResultBody
+  | AutoResultsBody
   | CandidatesBody
   | HandoffBody
   | PreviewBody
@@ -241,6 +251,26 @@ export async function POST(req: Request) {
     case 'result':
       setTcResult(body.id, body.result);
       return NextResponse.json({ ok: true });
+
+    // ── 자동 수행 결과 일괄 기입 — Claude가 수행한 결과를 local_id로 매칭 ──
+    case 'auto-results': {
+      const work = tcWorkBySession(body.sessionId);
+      if (!work) return NextResponse.json({ error: '작업을 찾을 수 없습니다' }, { status: 404 });
+      const byLocal = new Map(tcsOfWork(work.id).map((t) => [t.local_id, t]));
+      let applied = 0;
+      const unmatched: string[] = [];
+      for (const r of body.results) {
+        const tc = byLocal.get(r.localId);
+        if (!tc) {
+          unmatched.push(r.localId);
+          continue;
+        }
+        setTcResult(tc.id, r.result, r.note ?? null);
+        applied++;
+      }
+      // 조용한 실패 금지 — 매칭 안 된 local_id를 화면이 알 수 있게 돌려준다
+      return NextResponse.json({ ok: true, applied, unmatched });
+    }
 
     // ── 넘기기 직전 중복 확인용 후보 ─────────────────────────────────
     // 판정이 아니라 **검색**이다. 카테고리로 좁히고 유사도로 정렬만 하며,

@@ -600,10 +600,18 @@ export function setTcVerdict(
 }
 
 /** 수행 결과 기입 — 사람이 넣는다 */
-export function setTcResult(id: number, result: string): void {
-  getDb()
-    .prepare(`UPDATE tc SET result = ?, updated_at = ? WHERE id = ?`)
-    .run(result, nowIso(), id);
+export function setTcResult(id: number, result: string, note?: string | null): void {
+  // 자동 수행은 result와 함께 사유(note)를 남긴다 (BLOCK 사유·실패 원인 등).
+  // 수동 기입(드롭다운)은 note를 안 넘기므로 기존 note를 건드리지 않는다.
+  if (note !== undefined) {
+    getDb()
+      .prepare(`UPDATE tc SET result = ?, note = ?, updated_at = ? WHERE id = ?`)
+      .run(result, note, nowIso(), id);
+  } else {
+    getDb()
+      .prepare(`UPDATE tc SET result = ?, updated_at = ? WHERE id = ?`)
+      .run(result, nowIso(), id);
+  }
 }
 
 /** 자동화 후보로 넘기기 — 카탈로그 번호 부여 */

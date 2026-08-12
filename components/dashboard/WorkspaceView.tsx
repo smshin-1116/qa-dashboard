@@ -447,6 +447,8 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         } else {
           addToast('error', '응답을 받지 못했습니다. 다시 시도해주세요.');
         }
+        // 자동 수행 등 호출부가 응답 본문을 파싱할 수 있게 돌려준다
+        return full;
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           // 사용자가 중단 — 지금까지 받은 내용을 저장하고 조용히 종료
@@ -459,7 +461,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           if (full.trim()) {
             await addMessage({ role: 'assistant', content: full });
           }
-          return;
+          return full;
         }
         const msg = err instanceof Error ? err.message : '알 수 없는 오류';
         flushSync(() => {
@@ -470,9 +472,98 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         });
         await addMessage({ role: 'assistant', content: `오류가 발생했습니다: ${msg}` });
         addToast('error', msg);
+        return '';
       }
     },
     [activeSession, activeModel, activeAgentMode, workspaceKey, createSession, addMessage, updateClaudeSessionId, addToast],
+  );
+
+  /**
+   * TC 자동 수행 — 기존 채팅 파이프라인(Claude Code + Playwright MCP)을 버튼으로 트리거한다.
+   *
+   * 사용자가 매번 "stage에서 수행해줘"를 치던 것을 버튼 한 번으로. 흐름:
+   *   1) 선택 TC를 수행 프롬프트로 조립 (결과를 파싱 가능한 표 형식으로 요구)
+   *   2) handleSend로 Claude에 전송 → Claude가 Playwright로 stage 수행
+   *   3) 응답의 `| TC-ID | 결과 | 사유 |` 표를 파싱
+   *   4) auto-results로 tc 테이블에 일괄 기입 → 표 새로고침
+   *
+   * ⚠️ 실제 stage 수행이라 토큰·시간이 크다(TC 수만큼). 사람이 버튼을 눌러야만 돈다.
+   */
+  const handleRunTc = useCallback(
+    async (
+      tcs: Array<{
+        localId: string;
+        subCategory: string | null;
+        phase: string | null;
+        precondition: string | null;
+        steps: string | null;
+        expected: string | null;
+      }>,
+    ) => {
+      if (!activeSession || tcs.length === 0) return;
+
+      const prompt = [
+        '[TC 자동 수행 — stage 환경 (tms-stage.roouty.io)]',
+        '아래 TC를 Playwright로 stage에서 **실제 수행**하고 결과를 판정해줘.',
+        '',
+        '수행 규칙:',
+        '- 실행 가능 → 수행 후 Pass / Fail 판정',
+        '- 데이터 세팅이 필요하거나 명세 미정의 → Blocked + 사유 (무리하게 수행하지 말 것)',
+        '- 실행 리스크(BLOCK 예상)는 미리 판단해 Blocked 처리하고 필요한 데이터 세팅을 사유에 적을 것',
+        '',
+        '⚠️ 응답 **맨 끝**에 반드시 아래 형식의 표만 출력 (자동 기입용 — 결과는 Pass/Fail/Blocked/Not Test 중 하나):',
+        '| TC-ID | 결과 | 사유 |',
+        '| TC-01 | Pass | ... |',
+        '',
+        '[수행할 TC]',
+        ...tcs.map((t) =>
+          [
+            `${t.localId}`,
+            t.subCategory && `  중분류: ${t.subCategory}`,
+            t.phase && `  검증단계: ${t.phase}`,
+            t.precondition && `  전제조건: ${t.precondition}`,
+            t.steps && `  스텝: ${t.steps}`,
+            t.expected && `  기대결과: ${t.expected}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        ),
+      ].join('\n');
+
+      const full = (await handleSend(prompt, [])) ?? '';
+
+      // 응답에서 | TC-ID | 결과 | 사유 | 표를 파싱
+      const RESULTS = new Set(['Pass', 'Fail', 'Blocked', 'Not Test']);
+      const parsed: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }> = [];
+      for (const line of full.split('\n')) {
+        if (!line.trim().startsWith('|')) continue;
+        const cells = line.split('|').map((c) => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
+        if (cells.length < 2) continue;
+        const [localId, result, note] = cells;
+        if (!/^TC-\d+/i.test(localId) || !RESULTS.has(result)) continue;
+        parsed.push({ localId, result: result as 'Pass' | 'Fail' | 'Blocked' | 'Not Test', note: note || undefined });
+      }
+
+      if (parsed.length === 0) {
+        addToast('warning', '수행은 됐지만 결과 표를 못 읽었습니다. 대화에서 확인하고 수동 기입해주세요.');
+        return;
+      }
+
+      const res = await fetch('/api/workspace/tc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'auto-results', sessionId: activeSession.id, results: parsed }),
+      });
+      const body = (await res.json()) as { applied: number; unmatched: string[] };
+      setTcSavedAt(Date.now()); // TcPanel 새로고침
+      addToast(
+        body.unmatched.length ? 'warning' : 'success',
+        `${body.applied}건 자동 기입` +
+          (body.unmatched.length ? ` · 미매칭 ${body.unmatched.join(', ')}` : ''),
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSession, handleSend, addToast],
   );
 
   const handleStop = useCallback(() => {
@@ -644,6 +735,8 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                     session={activeSession}
                     refreshKey={tcSavedAt}
                     onDownloadXlsx={handleDownloadXlsx}
+                    onRunTc={handleRunTc}
+                    running={isStreaming}
                   />
                 </div>
               </div>

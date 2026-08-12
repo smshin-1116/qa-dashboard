@@ -716,3 +716,29 @@ CLAUDE.md의 **"조용한 실패 금지"** 원칙 위반.
 
 교훈: dev 중 코드 수정으로 서버가 재컴파일되는 동안 사용자 조작이 겹치면
 이런 조용한 실패가 실제로 난다. 낙관적 UI는 항상 실패 롤백을 짝지어야 한다.
+
+---
+
+## 2026-08-12 (5) — TC 자동 수행 트리거 (버튼화)
+
+사용자 지적: "TC 수행을 자동으로 하도록 설계했는데 화면에 트리거가 없다."
+사실 확인 — 시안·문서엔 "수행 결과 사람 기입"만 있고 자동 수행 트리거는 미문서/미구현이었다
+(DV-740 때 내가 스크립트로 1회 수행했을 뿐 버튼 없음). 지적이 정확 → 버튼으로 구현.
+
+### 방식 (사용자 확정)
+기존 채팅 파이프라인(Claude Code + Playwright MCP)을 **버튼으로 트리거**. 새 엔진 없음.
+- TC 표 헤더에 [▶ 선택 수행 N]·[전체 수행] — picked 체크박스 재사용
+- handleRunTc: 선택 TC를 수행 프롬프트로 조립 → handleSend(기존 채팅) → Claude가
+  stage(tms-stage.roouty.io)에서 Playwright 수행 → 응답 끝 `| TC-ID | 결과 | 사유 |`
+  표를 파싱 → auto-results로 tc 테이블 일괄 기입 → 표 새로고침
+- 규칙: 실행 가능→Pass/Fail, 데이터 세팅 필요·명세 미정의→Blocked+사유
+
+### 구현 파일
+- repo.setTcResult: note(수행 사유) 옵션 추가 (수동 기입은 note 미전달로 보존)
+- tc route: `auto-results` action (local_id 매칭 배치 기입, 미매칭 목록 반환 — 조용한 실패 금지)
+- WorkspaceView: handleSend가 응답 반환하도록 수정 + handleRunTc(프롬프트·파싱·기입)
+- TcPanel: onRunTc·running prop + [선택/전체 수행] 버튼
+
+### 검증
+버튼 렌더·배선·tsc·eslint 통과. ⚠️ 실제 stage 수행(Claude Code CLI + Playwright, 토큰 큼)은
+사람이 버튼 눌러야만 돌아서 라이브 트리거는 안 함 — 다음 실사용에서 확인.
