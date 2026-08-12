@@ -9,14 +9,14 @@ interface McpStatusBarProps {
 }
 
 const CHIPS: { key: 'figma' | 'jira' | 'git'; label: string; emoji: string; color: string }[] = [
-  { key: 'figma', label: 'Figma', emoji: '🎨', color: '#F97316' },
-  { key: 'jira', label: 'Jira', emoji: '📋', color: '#60A5FA' },
-  { key: 'git', label: 'GitHub', emoji: '🐙', color: '#22C55E' },
+  { key: 'figma', label: 'Figma', emoji: '🎨', color: 'var(--warn)' },
+  { key: 'jira', label: 'Jira', emoji: '📋', color: 'var(--info)' },
+  { key: 'git', label: 'GitHub', emoji: '🐙', color: 'var(--ok)' },
 ];
 
 export default function McpStatusBar({ mcpStatus }: McpStatusBarProps) {
   return (
-    <div className="flex items-center gap-2 px-5 py-2.5 border-b border-[#1E2535] bg-[#111520] flex-shrink-0">
+    <div className="flex items-center gap-2 px-5 py-2.5 border-b border-[var(--line)] bg-[var(--panel-hi)] flex-shrink-0">
       {CHIPS.map((chip) => {
         const connected = mcpStatus[chip.key];
         return (
@@ -24,14 +24,14 @@ export default function McpStatusBar({ mcpStatus }: McpStatusBarProps) {
             key={chip.key}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium"
             style={{
-              color: connected ? chip.color : '#64748B',
-              borderColor: connected ? chip.color : '#2A3347',
+              color: connected ? chip.color : 'var(--tx-3)',
+              borderColor: connected ? chip.color : 'var(--line-2)',
               backgroundColor: connected ? `${chip.color}1F` : 'transparent',
             }}
           >
             <span
               className="w-[7px] h-[7px] rounded-full"
-              style={{ backgroundColor: connected ? chip.color : '#475569' }}
+              style={{ backgroundColor: connected ? chip.color : 'var(--tx-3)' }}
             />
             {chip.emoji} {chip.label} {connected ? '연결' : '미연결'}
           </span>

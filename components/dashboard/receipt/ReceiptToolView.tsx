@@ -146,14 +146,14 @@ export default function ReceiptToolView() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0B0F17] text-slate-200">
+    <div className="flex flex-col h-screen bg-[var(--ground)] text-[var(--tx-1)]">
       <DashboardHeader activeModel={model} onModelChange={setModel} activeWorkspaceKey="receipt" />
 
       <main className="flex-1 overflow-auto p-6">
         <div className="max-w-5xl mx-auto space-y-5">
           <div>
-            <h1 className="text-lg font-semibold text-slate-100">🧾 인수증 생성 툴</h1>
-            <p className="text-[13px] text-slate-400 mt-1">
+            <h1 className="text-lg font-semibold text-[var(--tx-1)]">🧾 인수증 생성 툴</h1>
+            <p className="text-[13px] text-[var(--tx-3)] mt-1">
               배차확정 주문 데이터로 SAP 거래명세서(STANDARD_PRICED) 페이로드를 합성해 인수증을 생성합니다.
             </p>
           </div>
@@ -173,9 +173,9 @@ export default function ReceiptToolView() {
               onChange={(e) => setAuthToken(e.target.value)}
               placeholder="비우면 .env.local 계정 / JWT 입력 시 해당 계정으로 조회·전송"
               spellCheck={false}
-              className="w-full text-[12px] font-mono rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+              className="w-full text-[12px] font-mono rounded-md bg-[var(--ground)] border border-[var(--line-2)] px-3 py-2 text-[var(--tx-1)] focus:outline-none focus:border-sky-500"
             />
-            <p className="text-[12px] text-slate-500">
+            <p className="text-[12px] text-[var(--tx-3)]">
               {authToken.trim()
                 ? '✓ 입력한 토큰 계정으로 아래 불러오기·전송이 동작합니다.'
                 : '비어 있음 → .env.local 계정으로 동작. (다른 계정으로 만들려면 그 계정 JWT 입력)'}
@@ -186,13 +186,13 @@ export default function ReceiptToolView() {
           <section className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-4 space-y-3">
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-medium text-sky-200">🔗 배차에서 불러오기</span>
-              <span className="text-[12px] text-slate-500">루티 order/list 조회 → 기사·품목까지 자동 채움</span>
+              <span className="text-[12px] text-[var(--tx-3)]">루티 order/list 조회 → 기사·품목까지 자동 채움</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={routeSearchItem}
                 onChange={(e) => setRouteSearchItem(e.target.value as 'routeCode' | 'routeName')}
-                className="text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-2 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+                className="text-[13px] rounded-md bg-[var(--ground)] border border-[var(--line-2)] px-2 py-2 text-[var(--tx-1)] focus:outline-none focus:border-sky-500"
               >
                 <option value="routeCode">배차 코드</option>
                 <option value="routeName">주행 이름</option>
@@ -202,14 +202,14 @@ export default function ReceiptToolView() {
                 value={routeKeyword}
                 onChange={(e) => setRouteKeyword(e.target.value)}
                 placeholder={routeSearchItem === 'routeCode' ? '예: 20260612R934538' : '예: 2026.06.12 (금) 배차 #2'}
-                className="flex-1 min-w-[200px] text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+                className="flex-1 min-w-[200px] text-[13px] rounded-md bg-[var(--ground)] border border-[var(--line-2)] px-3 py-2 text-[var(--tx-1)] focus:outline-none focus:border-sky-500"
               />
               <input
                 type="text"
                 value={performedDate}
                 onChange={(e) => setPerformedDate(e.target.value)}
                 placeholder="주행일 YYYYMMDD-YYYYMMDD (선택)"
-                className="w-[230px] text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500"
+                className="w-[230px] text-[13px] rounded-md bg-[var(--ground)] border border-[var(--line-2)] px-3 py-2 text-[var(--tx-1)] focus:outline-none focus:border-sky-500"
               />
               <button
                 type="button"
@@ -225,19 +225,19 @@ export default function ReceiptToolView() {
                 {fetchNote}
               </div>
             )}
-            <p className="text-[12px] text-slate-500">
+            <p className="text-[12px] text-[var(--tx-3)]">
               불러오면 아래 입력란이 자동 채워지고, 기사명은 배차 결과에서 가져오므로 별도 지정이 필요 없습니다.
             </p>
           </section>
 
           {/* 입력 */}
-          <section className="rounded-lg border border-[#1E2535] bg-[#0F1520] p-4 space-y-3">
+          <section className="rounded-lg border border-[var(--line)] bg-[var(--inset)] p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-[13px] font-medium text-slate-300">주문 데이터 (OrderInput[])</label>
+              <label className="text-[13px] font-medium text-[var(--tx-2)]">주문 데이터 (OrderInput[])</label>
               <button
                 type="button"
                 onClick={() => setOrdersText(JSON.stringify(SAMPLE_ORDERS, null, 2))}
-                className="text-[12px] text-indigo-400 hover:text-indigo-300"
+                className="text-[12px] text-[var(--accent)] hover:text-[var(--accent)]"
               >
                 샘플 채우기
               </button>
@@ -246,19 +246,19 @@ export default function ReceiptToolView() {
               value={ordersText}
               onChange={(e) => setOrdersText(e.target.value)}
               spellCheck={false}
-              className="w-full h-72 font-mono text-[12px] leading-relaxed rounded-md bg-[#0B0F17] border border-[#2A3347] p-3 text-slate-200 focus:outline-none focus:border-indigo-500"
+              className="w-full h-72 font-mono text-[12px] leading-relaxed rounded-md bg-[var(--ground)] border border-[var(--line-2)] p-3 text-[var(--tx-1)] focus:outline-none focus:border-indigo-500"
             />
-            <p className="text-[12px] text-slate-500 -mt-1">
-              루티 <code className="text-slate-400">orders.json</code> 원본(<code>{'{type, data[]}'}</code>)을 그대로 붙여넣어도 됩니다 — 기사명만 아래에서 지정하세요.
+            <p className="text-[12px] text-[var(--tx-3)] -mt-1">
+              루티 <code className="text-[var(--tx-3)]">orders.json</code> 원본(<code>{'{type, data[]}'}</code>)을 그대로 붙여넣어도 됩니다 — 기사명만 아래에서 지정하세요.
             </p>
-            <p className="text-[12px] text-slate-500">
+            <p className="text-[12px] text-[var(--tx-3)]">
               ℹ️ 주문은 <b>배차된 상태(scheduled 이상)</b>여야 매칭됩니다 — 미배차·취소·보류·삭제 주문은 백엔드에서 매칭 제외됩니다. 기사·납품처도 루티에 <b>등록·활성</b> 상태여야 합니다(이 조건은 전송 후 서버에서만 확인 가능).
             </p>
 
             {/* 기사 배정 — orders.json 엔 기사가 없으므로 별도 지정 (차량 매칭 키) */}
-            <div className="space-y-2 border-t border-[#1E2535] pt-3">
+            <div className="space-y-2 border-t border-[var(--line)] pt-3">
               <div className="flex items-center gap-4 text-[13px]">
-                <span className="text-slate-400">기사 배정:</span>
+                <span className="text-[var(--tx-3)]">기사 배정:</span>
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input type="radio" checked={driverMode === 'single'} onChange={() => setDriverMode('single')} />
                   단일 기사
@@ -274,7 +274,7 @@ export default function ReceiptToolView() {
                   value={driverSingle}
                   onChange={(e) => setDriverSingle(e.target.value)}
                   placeholder="배차확정에서 배정된 기사명 (driver.name 과 정확 일치)"
-                  className="w-full text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full text-[13px] rounded-md bg-[var(--ground)] border border-[var(--line-2)] px-3 py-2 text-[var(--tx-1)] focus:outline-none focus:border-indigo-500"
                 />
               ) : (
                 <input
@@ -282,34 +282,34 @@ export default function ReceiptToolView() {
                   value={driverList}
                   onChange={(e) => setDriverList(e.target.value)}
                   placeholder="기사명 쉼표 구분 (예: 홍길동, 김철수) — 납품처 단위로 순환 배정"
-                  className="w-full text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-3 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full text-[13px] rounded-md bg-[var(--ground)] border border-[var(--line-2)] px-3 py-2 text-[var(--tx-1)] focus:outline-none focus:border-indigo-500"
                 />
               )}
-              <p className="text-[12px] text-slate-500">
+              <p className="text-[12px] text-[var(--tx-3)]">
                 ⚠️ 기사명은 루티에 등록된 <b>driver.name</b> 과 정확히 일치해야 차량 매칭이 통과합니다.
               </p>
             </div>
 
             {/* 거래명세서 종류(TSGUB) */}
-            <div className="flex items-center gap-3 text-[13px] border-t border-[#1E2535] pt-3">
-              <span className="text-slate-400">인수증 종류(TSGUB):</span>
+            <div className="flex items-center gap-3 text-[13px] border-t border-[var(--line)] pt-3">
+              <span className="text-[var(--tx-3)]">인수증 종류(TSGUB):</span>
               <select
                 value={tsgub}
                 onChange={(e) => setTsgub(e.target.value as Tsgub)}
-                className="text-[13px] rounded-md bg-[#0B0F17] border border-[#2A3347] px-2 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                className="text-[13px] rounded-md bg-[var(--ground)] border border-[var(--line-2)] px-2 py-2 text-[var(--tx-1)] focus:outline-none focus:border-indigo-500"
               >
                 <option value="STANDARD_PRICED">단가 있음 (STANDARD_PRICED)</option>
                 <option value="STANDARD_UNPRICED">단가 없음 (STANDARD_UNPRICED)</option>
                 <option value="INTEGRATED" disabled>통합 (INTEGRATED) — 추후</option>
               </select>
-              <span className="text-[12px] text-slate-500">
+              <span className="text-[12px] text-[var(--tx-3)]">
                 {tsgub === 'STANDARD_UNPRICED' ? '단가/금액 필드를 빈값으로 생성' : '단가 랜덤 + 금액 정확 계산'}
               </span>
             </div>
 
             {/* 단가 채움 — PRICED 일 때만 의미 */}
             <div className="flex items-center gap-4 text-[13px]">
-              <span className={tsgub === 'STANDARD_PRICED' ? 'text-slate-400' : 'text-slate-600'}>단가 채움:</span>
+              <span className={tsgub === 'STANDARD_PRICED' ? 'text-[var(--tx-3)]' : 'text-[var(--tx-4)]'}>단가 채움:</span>
               <label className={`flex items-center gap-1.5 ${tsgub === 'STANDARD_PRICED' ? 'cursor-pointer' : 'opacity-40'}`}>
                 <input
                   type="radio"
@@ -334,7 +334,7 @@ export default function ReceiptToolView() {
                 type="button"
                 disabled={loading}
                 onClick={() => run(false)}
-                className="px-4 py-2 rounded-md bg-[#1E2535] hover:bg-[#28324a] text-[13px] text-slate-100 disabled:opacity-50"
+                className="px-4 py-2 rounded-md bg-[var(--line)] hover:bg-[var(--line-2)] text-[13px] text-[var(--tx-1)] disabled:opacity-50"
               >
                 ① 미리보기 / 점검
               </button>
@@ -346,22 +346,22 @@ export default function ReceiptToolView() {
               >
                 ② /v2/sap/receipt 전송
               </button>
-              {loading && <span className="text-[13px] text-slate-400">처리 중…</span>}
+              {loading && <span className="text-[13px] text-[var(--tx-3)]">처리 중…</span>}
             </div>
           </section>
 
           {/* 결과 */}
           {result && (
-            <section className="rounded-lg border border-[#1E2535] bg-[#0F1520] p-4 space-y-3">
+            <section className="rounded-lg border border-[var(--line)] bg-[var(--inset)] p-4 space-y-3">
               {result.error && (
                 <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[13px] text-rose-200">
                   ✖ {result.error}
                 </div>
               )}
               {result.mode && (
-                <div className="text-[13px] text-slate-300">
+                <div className="text-[13px] text-[var(--tx-2)]">
                   모드: <b>{result.mode === 'dry-run' ? '드라이런(미전송)' : '전송 완료'}</b>
-                  {result.baseUrl && <span className="text-slate-500"> · 대상 {result.baseUrl}</span>}
+                  {result.baseUrl && <span className="text-[var(--tx-3)]"> · 대상 {result.baseUrl}</span>}
                 </div>
               )}
               {result.adaptNote && (
@@ -369,7 +369,7 @@ export default function ReceiptToolView() {
               )}
               {result.precheck && (
                 <div className="text-[13px]">
-                  <div className="text-slate-300">
+                  <div className="text-[var(--tx-2)]">
                     그룹(인수증) {result.precheck.groupCount}건 · 주문 {result.precheck.orderCount}건 ·{' '}
                     {result.precheck.ok ? (
                       <span className="text-emerald-400">점검 통과</span>
@@ -389,7 +389,7 @@ export default function ReceiptToolView() {
                 </div>
               )}
               {Boolean(result.payload || result.response) && (
-                <pre className="max-h-96 overflow-auto rounded-md bg-[#0B0F17] border border-[#2A3347] p-3 text-[11px] font-mono text-slate-300">
+                <pre className="max-h-96 overflow-auto rounded-md bg-[var(--ground)] border border-[var(--line-2)] p-3 text-[11px] font-mono text-[var(--tx-2)]">
                   {JSON.stringify(result.response ?? result.payload, null, 2)}
                 </pre>
               )}

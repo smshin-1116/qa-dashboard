@@ -20,12 +20,13 @@ import type { NoticeKind, Priority, Severity } from '@/lib/workspace/types';
  * 고정이 없으면 D+7 규칙에 다시 걸려 즉시 튕겨나간다(무한 루프).
  */
 
+const mix = (v: string, p: number) => `color-mix(in srgb, var(${v}) ${p}%, transparent)`;
 const TONE: Record<Severity, { fg: string; bd: string; bg: string }> = {
-  crit: { fg: '#F87171', bd: '#F8717166', bg: '#F8717120' },
-  warn: { fg: '#FBBF24', bd: '#FBBF2466', bg: '#FBBF2420' },
-  info: { fg: '#60A5FA', bd: '#60A5FA66', bg: '#60A5FA20' },
-  ok: { fg: '#34D399', bd: '#34D39966', bg: '#34D39920' },
-  idle: { fg: '#6C7891', bd: '#2A3347', bg: '#0F1520' },
+  crit: { fg: 'var(--crit)', bd: mix('--crit', 40), bg: mix('--crit', 12) },
+  warn: { fg: 'var(--warn)', bd: mix('--warn', 40), bg: mix('--warn', 12) },
+  info: { fg: 'var(--info)', bd: mix('--info', 40), bg: mix('--info', 12) },
+  ok: { fg: 'var(--ok)', bd: mix('--ok', 40), bg: mix('--ok', 12) },
+  idle: { fg: 'var(--tx-3)', bd: 'var(--line-2)', bg: 'var(--inset)' },
 };
 
 /** 그룹별 성격 색 — 이월 초과가 가장 급하다 */
@@ -108,7 +109,7 @@ export default function NoticeView() {
   const groups = data?.groups ?? [];
 
   return (
-    <div className="flex flex-col h-screen bg-[#0B0F17]">
+    <div className="flex flex-col h-screen bg-[var(--ground)]">
       <DashboardHeader
         activeModel={model}
         onModelChange={setModel}
@@ -120,25 +121,25 @@ export default function NoticeView() {
         <div className="max-w-[1100px]">
           {/* ── 머리말 ─────────────────────────────────────────── */}
           <div className="mb-4">
-            <div className="text-[9.5px] font-mono font-semibold tracking-[0.1em] text-[#4A5468] uppercase">
+            <div className="text-[9.5px] font-mono font-semibold tracking-[0.1em] text-[var(--tx-4)] uppercase">
               헤더 🔔 진입 · 워크스페이스 탭 아님
             </div>
-            <h1 className="mt-1 text-[19px] font-[680] tracking-[-0.02em] text-[#E8ECF5]">알림</h1>
-            <p className="mt-0.5 text-[12.5px] text-[#6C7891] max-w-[68ch]">
-              <b className="text-[#A8B2C7]">오늘 할 일</b>은 오늘 처리할 것,{' '}
-              <b className="text-[#A8B2C7]">알림</b>은 며칠~몇 주째 정체된 것. 성격이 달라서
+            <h1 className="mt-1 text-[19px] font-[680] tracking-[-0.02em] text-[var(--tx-1)]">알림</h1>
+            <p className="mt-0.5 text-[12.5px] text-[var(--tx-3)] max-w-[68ch]">
+              <b className="text-[var(--tx-2)]">오늘 할 일</b>은 오늘 처리할 것,{' '}
+              <b className="text-[var(--tx-2)]">알림</b>은 며칠~몇 주째 정체된 것. 성격이 달라서
               섞으면 오늘 할 일이 잔소리로 오염된다 — 그래서 따로 뒀다.
             </p>
             <div className="mt-2 flex items-center gap-3">
               <Link
                 href="/dashboard/today"
-                className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#0F1520]
-                           border border-[#2A3347] text-[#A8B2C7] hover:border-[#4F46E5] hover:text-[#E8ECF5]"
+                className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[var(--inset)]
+                           border border-[var(--line-2)] text-[var(--tx-2)] hover:border-[var(--accent-deep)] hover:text-[var(--tx-1)]"
               >
                 ← 오늘로
               </Link>
               {(data?.snoozed ?? 0) > 0 && (
-                <span className="font-mono text-[10px] text-[#4A5468]">
+                <span className="font-mono text-[10px] text-[var(--tx-4)]">
                   미룬 항목 {data?.snoozed}건은 숨겨져 있습니다
                 </span>
               )}
@@ -155,7 +156,7 @@ export default function NoticeView() {
           )}
 
           {loading ? (
-            <div className="text-[12.5px] text-[#6C7891]">불러오는 중…</div>
+            <div className="text-[12.5px] text-[var(--tx-3)]">불러오는 중…</div>
           ) : groups.length === 0 ? (
             <EmptyState />
           ) : (
@@ -173,12 +174,12 @@ export default function NoticeView() {
 
 function EmptyState() {
   return (
-    <div className="border border-dashed border-[#2A3347] rounded-xl px-5 py-8 text-center bg-[#0F1520]">
-      <div className="text-[13px] font-[640] text-[#34D399]">정체된 항목이 없습니다</div>
-      <div className="mt-1.5 text-[12px] text-[#6C7891] leading-relaxed">
+    <div className="border border-dashed border-[var(--line-2)] rounded-xl px-5 py-8 text-center bg-[var(--inset)]">
+      <div className="text-[13px] font-[640] text-[var(--ok)]">정체된 항목이 없습니다</div>
+      <div className="mt-1.5 text-[12px] text-[var(--tx-3)] leading-relaxed">
         이월 상한(D+7) 초과 · 7일 이상 방치된 자산 · 오래 머문 티켓이 생기면 여기에 모입니다.
         <br />
-        오늘 처리할 일은 <b className="text-[#A8B2C7]">오늘</b> 화면에 있습니다.
+        오늘 처리할 일은 <b className="text-[var(--tx-2)]">오늘</b> 화면에 있습니다.
       </div>
     </div>
   );
@@ -198,26 +199,26 @@ function Group({
 
   return (
     <div
-      className="bg-[#161B27] border border-[#1E2535] border-l-[3px] rounded-xl p-3.5"
+      className="bg-[var(--panel)] border border-[var(--line)] border-l-[3px] rounded-xl p-3.5"
       style={{ borderLeftColor: tone.fg }}
     >
       <div className="flex items-start justify-between gap-2.5 mb-2.5">
         <div>
-          <div className="text-[13px] font-[640] text-[#E8ECF5] tracking-[-0.01em]">
+          <div className="text-[13px] font-[640] text-[var(--tx-1)] tracking-[-0.01em]">
             {group.title}
           </div>
-          <div className="text-[11px] text-[#6C7891] mt-0.5">{group.hint}</div>
+          <div className="text-[11px] text-[var(--tx-3)] mt-0.5">{group.hint}</div>
         </div>
         <Pill text={`${group.items.length}건`} tone={GROUP_TONE[group.kind] ?? 'idle'} />
       </div>
 
-      <div className="flex flex-col gap-px bg-[#1E2535] border border-[#1E2535] rounded-lg overflow-hidden">
+      <div className="flex flex-col gap-px bg-[var(--line)] border border-[var(--line)] rounded-lg overflow-hidden">
         {group.items.map((it) => {
           const id = `${it.kind}:${it.key}`;
           const working = busy === id;
           const hot = (it.days ?? 0) > 14;
           return (
-            <div key={id} className="flex items-center gap-2.5 px-3 py-2.5 bg-[#161B27]">
+            <div key={id} className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--panel)]">
               {/* 경과일이 이 화면의 핵심 정보 — 가장 먼저 읽히게 둔다 */}
               <span
                 className="font-mono text-[9.5px] font-bold px-[6px] py-[2px] rounded border whitespace-nowrap"
@@ -232,15 +233,15 @@ function Group({
               </span>
 
               <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] text-[#E8ECF5] font-medium truncate">{it.title}</div>
+                <div className="text-[12.5px] text-[var(--tx-1)] font-medium truncate">{it.title}</div>
                 {it.detail && (
-                  <div className="text-[11px] text-[#6C7891] mt-0.5 truncate">{it.detail}</div>
+                  <div className="text-[11px] text-[var(--tx-3)] mt-0.5 truncate">{it.detail}</div>
                 )}
               </div>
 
               {it.source && (
                 <span className="font-mono text-[9px] font-bold px-[5px] py-[1.5px] rounded
-                                 bg-[#0F1520] border border-[#2A3347] text-[#6C7891] whitespace-nowrap">
+                                 bg-[var(--inset)] border border-[var(--line-2)] text-[var(--tx-3)] whitespace-nowrap">
                   {it.source}
                 </span>
               )}
@@ -277,8 +278,8 @@ function Group({
       </div>
 
       {isCarry && (
-        <div className="mt-2.5 border-l-2 border-[#4F46E5] pl-2.5 py-1 text-[11.5px] text-[#6C7891]">
-          <b className="text-[#818CF8]">복귀 규칙</b> — 경과일은 <b>유지</b>하고 우선순위를{' '}
+        <div className="mt-2.5 border-l-2 border-[var(--accent-deep)] pl-2.5 py-1 text-[11.5px] text-[var(--tx-3)]">
+          <b className="text-[var(--accent)]">복귀 규칙</b> — 경과일은 <b>유지</b>하고 우선순위를{' '}
           <b>한 단계 올린다</b>. 그리고 <span className="font-mono">📌 고정</span>이 붙어 D+7 자동
           이동에서 제외된다 — 안 그러면 복귀 즉시 다시 여기로 튕겨나온다.
         </div>
@@ -308,8 +309,8 @@ function Btn({
       className={[
         'px-2.5 py-1 rounded-md text-[10.5px] font-semibold whitespace-nowrap border transition-colors',
         primary
-          ? 'bg-[#4F46E5] border-[#4F46E5] text-white hover:bg-[#818CF8]'
-          : 'bg-[#0F1520] border-[#2A3347] text-[#A8B2C7] hover:border-[#4F46E5] hover:text-[#E8ECF5]',
+          ? 'bg-[var(--accent-deep)] border-[var(--accent-deep)] text-white hover:bg-[var(--accent)]'
+          : 'bg-[var(--inset)] border-[var(--line-2)] text-[var(--tx-2)] hover:border-[var(--accent-deep)] hover:text-[var(--tx-1)]',
         disabled ? 'opacity-50 cursor-not-allowed' : '',
       ].join(' ')}
     >

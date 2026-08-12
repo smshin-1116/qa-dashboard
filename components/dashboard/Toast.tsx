@@ -23,10 +23,10 @@ const ICONS: Record<ToastType, string> = {
 };
 
 const STYLES: Record<ToastType, string> = {
-  success: 'bg-[#0D2A1A] border-[#166534] text-green-300',
-  error:   'bg-[#2A0D0D] border-[#7F1D1D] text-red-300',
-  info:    'bg-[#0D1A2A] border-[#1D4A7F] text-blue-300',
-  warning: 'bg-[#2A1A00] border-[#854D0E] text-yellow-300',
+  success: 'bg-[color-mix(in_srgb,var(--ok)_14%,var(--panel))] border-[color-mix(in_srgb,var(--ok)_45%,transparent)] text-[var(--ok)]',
+  error:   'bg-[color-mix(in_srgb,var(--crit)_14%,var(--panel))] border-[color-mix(in_srgb,var(--crit)_45%,transparent)] text-[var(--crit)]',
+  info:    'bg-[color-mix(in_srgb,var(--info)_14%,var(--panel))] border-[color-mix(in_srgb,var(--info)_45%,transparent)] text-[var(--info)]',
+  warning: 'bg-[color-mix(in_srgb,var(--warn)_14%,var(--panel))] border-[color-mix(in_srgb,var(--warn)_45%,transparent)] text-[var(--warn)]',
 };
 
 export default function Toast({ toasts, onRemove }: ToastProps) {
