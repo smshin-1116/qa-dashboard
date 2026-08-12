@@ -338,13 +338,19 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
   );
 
   const handleSend = useCallback(
-    async (content: string, attachments: Attachment[]) => {
+    async (
+      content: string,
+      attachments: Attachment[],
+      opts?: { displayMessage?: string },
+    ) => {
       let session = activeSession;
       if (!session) {
         session = await createSession(activeModel, workspaceKey);
       }
 
-      await addMessage({ role: 'user', content, attachments });
+      // CLI엔 content(전체 프롬프트)를 보내되, 대화에는 displayMessage(짧은 안내)만 남긴다.
+      // 수행 버튼이 만든 긴 프롬프트가 사용자 말풍선으로 찍히는 것을 막는다 (2026-08-12).
+      await addMessage({ role: 'user', content: opts?.displayMessage ?? content, attachments });
 
       setIsStreaming(true);
       setStreamingSessionId(session.id);
@@ -530,7 +536,10 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         ),
       ].join('\n');
 
-      const full = (await handleSend(prompt, [])) ?? '';
+      const full =
+        (await handleSend(prompt, [], {
+          displayMessage: `▶ TC ${tcs.length}건 stage 자동 수행 요청 (${tcs.map((t) => t.localId).join(', ')})`,
+        })) ?? '';
 
       // 응답에서 | TC-ID | 결과 | 사유 | 표를 파싱
       const RESULTS = new Set(['Pass', 'Fail', 'Blocked', 'Not Test']);
