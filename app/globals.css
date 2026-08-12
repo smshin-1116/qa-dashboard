@@ -1,27 +1,109 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────
+   워크스페이스 색 토큰 (시안 workspace-prototype.html에서 이식)
+
+   ⚠️ 컴포넌트는 이 토큰을 참조한다 — 색을 하드코딩하지 않는다.
+   Tailwind:  bg-[var(--panel)]  ·  인라인: style={{ background: 'var(--panel)' }}
+   기본값은 다크. data-theme로 뷰어가 라이트/다크를 고른다(useTheme 훅).
+
+   라이트는 단순 반전이 아니라 별도 조율 — 지면은 인디고 쪽으로 살짝 기운 회색,
+   시맨틱색(ok/warn/crit)은 밝은 배경 대비를 위해 더 진한 값을 쓴다.
+   ───────────────────────────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 다크 = 기본 (테마 미지정 시) */
+  --ground: #0b0f17;
+  --inset: #0f1520;
+  --panel: #161b27;
+  --panel-hi: #1b2130;
+  --line: #1e2535;
+  --line-2: #2a3347;
+  --tx-1: #e8ecf5;
+  --tx-2: #a8b2c7;
+  --tx-3: #6c7891;
+  --tx-4: #4a5468;
+  --accent: #818cf8;
+  --accent-deep: #4f46e5;
+  --accent-bg: #1e1a3a;
+  --ok: #34d399;
+  --info: #60a5fa;
+  --warn: #fbbf24;
+  --crit: #f87171;
+}
+
+/* 뷰어가 테마를 안 골랐을 때 OS 취향을 따른다 */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --ground: #f4f5fa;
+    --inset: #ebedf5;
+    --panel: #ffffff;
+    --panel-hi: #f8f9fd;
+    --line: #e1e5f0;
+    --line-2: #cdd4e4;
+    --tx-1: #101524;
+    --tx-2: #414b62;
+    --tx-3: #6c7891;
+    --tx-4: #98a1b5;
+    --accent: #4f46e5;
+    --accent-deep: #3730a3;
+    --accent-bg: #eeebfb;
+    --ok: #059669;
+    --info: #2563eb;
+    --warn: #b45309;
+    --crit: #dc2626;
+  }
+}
+
+/* 뷰어 토글이 미디어쿼리를 양방향으로 이긴다 */
+:root[data-theme="dark"] {
+  --ground: #0b0f17;
+  --inset: #0f1520;
+  --panel: #161b27;
+  --panel-hi: #1b2130;
+  --line: #1e2535;
+  --line-2: #2a3347;
+  --tx-1: #e8ecf5;
+  --tx-2: #a8b2c7;
+  --tx-3: #6c7891;
+  --tx-4: #4a5468;
+  --accent: #818cf8;
+  --accent-deep: #4f46e5;
+  --accent-bg: #1e1a3a;
+  --ok: #34d399;
+  --info: #60a5fa;
+  --warn: #fbbf24;
+  --crit: #f87171;
+}
+:root[data-theme="light"] {
+  --ground: #f4f5fa;
+  --inset: #ebedf5;
+  --panel: #ffffff;
+  --panel-hi: #f8f9fd;
+  --line: #e1e5f0;
+  --line-2: #cdd4e4;
+  --tx-1: #101524;
+  --tx-2: #414b62;
+  --tx-3: #6c7891;
+  --tx-4: #98a1b5;
+  --accent: #4f46e5;
+  --accent-deep: #3730a3;
+  --accent-bg: #eeebfb;
+  --ok: #059669;
+  --info: #2563eb;
+  --warn: #b45309;
+  --crit: #dc2626;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--ground);
+  --color-foreground: var(--tx-1);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--ground);
+  color: var(--tx-1);
   font-family: Arial, Helvetica, sans-serif;
 }
 

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { MODEL_SUPPORT, isEnabled, canUseMcp } from '@/constants/modelSupport';
 import { WORKSPACES } from '@/constants/workspaces';
+import { useTheme } from '@/hooks/useTheme';
 import type { AIModel, WorkspaceKind } from '@/types/session';
 
 const MODEL_KEYS = Object.keys(MODEL_SUPPORT) as AIModel[];
@@ -31,21 +32,22 @@ export default function DashboardHeader({
   activeWorkspaceKey,
   noticeCount = 0,
 }: DashboardHeaderProps) {
+  const { theme, toggle } = useTheme();
   return (
-    <header className="relative flex items-center justify-between px-5 h-14 bg-[#161B27] border-b border-[#1E2535] flex-shrink-0 gap-4">
+    <header className="relative flex items-center justify-between px-5 h-14 bg-[var(--panel)] border-b border-[var(--line)] flex-shrink-0 gap-4">
       {/* Left: 로고 */}
       <div className="flex items-center gap-3 flex-shrink-0">
         <div className="w-7 h-7 rounded-md bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-sm font-bold text-white">
           Q
         </div>
         <div>
-          <div className="text-[15px] font-semibold text-slate-100">QA Agent</div>
-          <div className="text-[11px] text-slate-500">Dashboard</div>
+          <div className="text-[15px] font-semibold text-[var(--tx-1)]">QA Agent</div>
+          <div className="text-[11px] text-[var(--tx-3)]">Dashboard</div>
         </div>
       </div>
 
       {/* Center: Workspace 전환 탭 (절대 중앙 정렬, constants/workspaces.ts로 확장) */}
-      <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-[#0F1520] border border-[#2A3347] rounded-lg p-[3px]">
+      <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 bg-[var(--inset)] border border-[var(--line-2)] rounded-lg p-[3px]">
         {WORKSPACES.map((ws) => {
           const active = ws.key === activeWorkspaceKey;
           return (
@@ -57,7 +59,7 @@ export default function DashboardHeader({
                 'flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[12px] font-semibold transition-all whitespace-nowrap border',
                 active
                   ? 'bg-[#1E1A3A] border-indigo-600 text-indigo-300'
-                  : 'bg-transparent border-transparent text-slate-500 hover:bg-[#1E2535] hover:text-slate-300',
+                  : 'bg-transparent border-transparent text-[var(--tx-3)] hover:bg-[var(--line)] hover:text-[var(--tx-2)]',
               ].join(' ')}
             >
               <span>{ws.icon}</span>
@@ -75,8 +77,8 @@ export default function DashboardHeader({
             href="/dashboard/notice"
             title={`정체·방치 신호 ${noticeCount}건 (오늘 할 일과 분리)`}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10.5px] font-semibold
-                       bg-[#0F1520] border border-[#2A3347] text-slate-400
-                       hover:text-slate-200 hover:border-indigo-700 transition-colors"
+                       bg-[var(--inset)] border border-[var(--line-2)] text-[var(--tx-3)]
+                       hover:text-[var(--tx-1)] hover:border-indigo-700 transition-colors"
           >
             <span>🔔</span>
             <span className="font-mono tabular-nums px-1 rounded bg-amber-400 text-[#0B0F17] text-[9px] font-bold">
@@ -85,8 +87,8 @@ export default function DashboardHeader({
           </Link>
         )}
 
-        <div className="flex items-center bg-[#0F1520] border border-[#2A3347] rounded-lg p-[3px] gap-0.5">
-          <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide px-2 border-r border-[#2A3347] mr-0.5 whitespace-nowrap">
+        <div className="flex items-center bg-[var(--inset)] border border-[var(--line-2)] rounded-lg p-[3px] gap-0.5">
+          <span className="text-[10px] text-[var(--tx-3)] font-semibold uppercase tracking-wide px-2 border-r border-[var(--line-2)] mr-0.5 whitespace-nowrap">
             AI
           </span>
           {MODEL_KEYS.map((model) => {
@@ -118,7 +120,7 @@ export default function DashboardHeader({
                     ? 'bg-[#1A2A1A] border-green-700 text-green-400'
                     : active && model === 'codex'
                     ? 'bg-[#1A1A2E] border-purple-700 text-purple-400'
-                    : 'bg-transparent border-transparent text-slate-500 hover:bg-[#1E2535] hover:text-slate-400',
+                    : 'bg-transparent border-transparent text-[var(--tx-3)] hover:bg-[var(--line)] hover:text-[var(--tx-3)]',
                 ].join(' ')}
               >
                 <span
@@ -137,7 +139,17 @@ export default function DashboardHeader({
           })}
         </div>
 
-        <button className="w-[30px] h-[30px] rounded-md bg-[#1E2535] border border-[#2A3347] flex items-center justify-center text-slate-400 hover:text-slate-200 transition-colors text-sm">
+        {/* 라이트/다크 토글 — data-theme만 바꾸면 CSS 토큰이 따라온다 */}
+        <button
+          onClick={toggle}
+          title={theme === 'light' ? '다크 모드로' : '라이트 모드로'}
+          aria-label="테마 전환"
+          className="w-[30px] h-[30px] rounded-md bg-[var(--line)] border border-[var(--line-2)] flex items-center justify-center text-[var(--tx-3)] hover:text-[var(--tx-1)] transition-colors text-sm"
+        >
+          {theme === 'light' ? '🌙' : '☀️'}
+        </button>
+
+        <button className="w-[30px] h-[30px] rounded-md bg-[var(--line)] border border-[var(--line-2)] flex items-center justify-center text-[var(--tx-3)] hover:text-[var(--tx-1)] transition-colors text-sm">
           ⚙
         </button>
       </div>
