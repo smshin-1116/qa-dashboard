@@ -742,3 +742,34 @@ CLAUDE.md의 **"조용한 실패 금지"** 원칙 위반.
 ### 검증
 버튼 렌더·배선·tsc·eslint 통과. ⚠️ 실제 stage 수행(Claude Code CLI + Playwright, 토큰 큼)은
 사람이 버튼 눌러야만 돌아서 라이브 트리거는 안 함 — 다음 실사용에서 확인.
+
+---
+
+## 2026-08-12 (6) — TC 수행 실패 원인 규명 (Playwright 프로필 충돌) + 전용 프로필 분리
+
+증상: [수행] 클릭 시 "Claude CLI가 응답 없이 종료 (exit unknown)". 사용자 체감
+"고도화 후 기능이 오히려 안 됨".
+
+### 진단 (추측 없이 실측)
+- 채팅 파이프라인·claude CLI·Playwright 모두 **정상** (각각 직접 실행 성공)
+- 채팅 라우트 코드는 이번 세션 미변경 (고도화 코드 문제 아님)
+- 진짜 원인: **Playwright MCP가 단일 브라우저 프로필(user-data-dir) 공유.**
+  claude 응답 로그에 증거 — "프로필을 점유하던 이전 세션의 Playwright Chrome은 종료 후
+  새로 띄웠다". 여러 claude/브라우저 세션이 동시에 Playwright를 쓰면 프로필 점유 충돌로
+  한쪽 Chrome이 강제 종료되고 서브프로세스가 시그널 종료(exit code=null=unknown).
+- "기존엔 됐다"가 맞는 이유: 그땐 Playwright를 동시에 쓰는 다른 세션이 없었음.
+  지금은 내가 이 세션에서 Playwright(스크린샷)를 점유 중이라 충돌.
+
+### 해결 — 수행 전용 Playwright 프로필
+chat route에 `tcRun` 플래그. 수행 시 `--mcp-config`로 **전용 user-data-dir**
+(`~/.qa-tc-run-profile`)의 Playwright만 붙이고 `--strict-mcp-config`로 그것만 로드.
+→ 다른 세션 브라우저와 분리 · 프로필 영속이라 stage 로그인 유지 · MCP 스키마 비용↓.
+tcRun=false(일반 채팅)는 기존과 100% 동일 — mcp-config 미부착.
+
+에러 안내도 개선(조용한 실패 금지): exit code=null(시그널) 또는 playwright/browser
+관련이면 "브라우저 자동화 충돌 — 다른 세션 닫고 재시도" 안내.
+
+### 검증
+전용 프로필 mcp-config로 claude 직접 실행 → Playwright connected · stage 접속 성공
+("루티 Roouty - 차량배차관리시스템"). tsc·eslint 통과.
+⚠️ 전용 프로필은 새 프로필이라 첫 수행 시 stage 로그인 1회 필요 (이후 영속 유지).

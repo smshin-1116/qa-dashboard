@@ -341,7 +341,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
     async (
       content: string,
       attachments: Attachment[],
-      opts?: { displayMessage?: string },
+      opts?: { displayMessage?: string; tcRun?: boolean },
     ) => {
       let session = activeSession;
       if (!session) {
@@ -370,6 +370,8 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
             claudeSessionId: session.claudeSessionId,
             attachments,
             agentMode: activeAgentMode,
+            // 수행 모드 — 전용 프로필 Playwright만 붙여 브라우저 충돌 방지
+            tcRun: opts?.tcRun ?? false,
           }),
           signal: chatAbortRef.current.signal,
         });
@@ -539,6 +541,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
       const full =
         (await handleSend(prompt, [], {
           displayMessage: `▶ TC ${tcs.length}건 stage 자동 수행 요청 (${tcs.map((t) => t.localId).join(', ')})`,
+          tcRun: true,
         })) ?? '';
 
       // 응답에서 | TC-ID | 결과 | 사유 | 표를 파싱

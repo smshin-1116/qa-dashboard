@@ -80,10 +80,18 @@ function classifyClaudeError(code: number | null, stderr: string): string {
     return '네트워크 오류로 Claude 서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.';
   }
 
+  if (lower.includes('playwright') || lower.includes('browser') || lower.includes('user data dir') || lower.includes('profile')) {
+    return 'TC 수행 중 브라우저(Playwright)가 다른 자동화 세션과 충돌해 종료됐습니다. 다른 Claude Code·브라우저 작업을 닫고 다시 시도해주세요.';
+  }
+
   if (trimmed) {
     // 마지막 3줄만 노출 (스택트레이스 길이 컷)
     const tail = trimmed.split('\n').slice(-3).join('\n');
     return `Claude CLI 오류 (exit ${code ?? 'unknown'}): ${tail}`;
+  }
+  // code=null(시그널 종료)은 대개 브라우저 프로필 충돌 등으로 강제 종료된 경우다
+  if (code === null) {
+    return 'Claude CLI가 강제 종료됐습니다 (exit unknown). TC 수행 중이라면 다른 세션의 브라우저 자동화와 충돌했을 수 있습니다 — 다른 Claude Code·브라우저를 닫고 다시 시도해주세요.';
   }
   return `Claude CLI가 응답 없이 종료되었습니다 (exit ${code ?? 'unknown'}). 잠시 후 다시 시도해주세요.`;
 }
@@ -306,6 +314,14 @@ interface ChatRequestBody {
   attachments?: Attachment[];
   /** 에이전트 모드 — 모드별 시스템 프롬프트 분기 */
   agentMode?: AgentMode;
+  /**
+   * TC 자동 수행 모드 — Playwright로 stage 브라우저를 몬다.
+   * 전역 Playwright MCP는 단일 프로필을 공유해, 다른 Claude Code·브라우저 세션과
+   * 동시에 쓰면 프로필 점유 충돌로 한쪽 Chrome이 강제 종료되고 서브프로세스가 죽는다
+   * (실측 2026-08-12: exit unknown). 수행 시엔 **전용 프로필의 Playwright**만 붙여
+   * 다른 세션과 브라우저를 분리한다.
+   */
+  tcRun?: boolean;
 }
 
 /** base64 첨부파일을 /tmp/qa-uploads 에 저장 후 경로 반환 */
@@ -361,6 +377,29 @@ export async function POST(req: NextRequest) {
 
   if (filePaths.length > 0) {
     args.push('--add-dir', join(tmpdir(), 'qa-uploads'));
+  }
+
+  /**
+   * TC 수행 모드 — 전용 프로필의 Playwright MCP만 붙인다.
+   * 별도 user-data-dir이라 다른 세션 브라우저와 충돌하지 않고, 프로필이 영속이라
+   * stage 로그인 상태가 수행 사이에 유지된다. --strict-mcp-config로 이것만 로드해
+   * 불필요한 MCP(atlassian·github 등) 스키마 비용도 줄인다.
+   */
+  if (body.tcRun) {
+    const runProfile = join(process.env.HOME ?? tmpdir(), '.qa-tc-run-profile');
+    const mcpConfigPath = join(tmpdir(), 'qa-tc-run-mcp.json');
+    await writeFile(
+      mcpConfigPath,
+      JSON.stringify({
+        mcpServers: {
+          playwright: {
+            command: 'npx',
+            args: ['@playwright/mcp@latest', '--user-data-dir', runProfile],
+          },
+        },
+      }),
+    );
+    args.push('--mcp-config', mcpConfigPath, '--strict-mcp-config');
   }
 
   const readable = new ReadableStream({
