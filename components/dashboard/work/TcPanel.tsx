@@ -24,22 +24,22 @@ import type { Session } from '@/types/session';
 
 // ─── 시안 토큰 (dark) ─────────────────────────────────────────────────
 const C = {
-  inset: '#0F1520',
-  panel: '#161B27',
-  panelHi: '#1B2130',
-  line: '#1E2535',
-  line2: '#2A3347',
-  tx1: '#E8ECF5',
-  tx2: '#A8B2C7',
-  tx3: '#6C7891',
-  tx4: '#4A5468',
-  accent: '#818CF8',
-  accentDeep: '#4F46E5',
-  accentBg: '#1E1A3A',
-  ok: '#34D399',
-  info: '#60A5FA',
-  warn: '#FBBF24',
-  crit: '#F87171',
+  inset: 'var(--inset)',
+  panel: 'var(--panel)',
+  panelHi: 'var(--panel-hi)',
+  line: 'var(--line)',
+  line2: 'var(--line-2)',
+  tx1: 'var(--tx-1)',
+  tx2: 'var(--tx-2)',
+  tx3: 'var(--tx-3)',
+  tx4: 'var(--tx-4)',
+  accent: 'var(--accent)',
+  accentDeep: 'var(--accent-deep)',
+  accentBg: 'var(--accent-bg)',
+  ok: 'var(--ok)',
+  info: 'var(--info)',
+  warn: 'var(--warn)',
+  crit: 'var(--crit)',
 } as const;
 
 type Tone = 'ok' | 'info' | 'warn' | 'crit' | 'idle';
@@ -362,8 +362,8 @@ export default function TcPanel({
         <div
           className="px-3 py-2 rounded-[9px] border text-[11.5px]"
           style={{
-            borderColor: `${TONE_FG[flash.tone]}66`,
-            background: `${TONE_FG[flash.tone]}1c`,
+            borderColor: `color-mix(in srgb, ${TONE_FG[flash.tone]} 40%, transparent)`,
+            background: `color-mix(in srgb, ${TONE_FG[flash.tone]} 11%, transparent)`,
             color: TONE_FG[flash.tone],
           }}
         >
@@ -530,8 +530,8 @@ export default function TcPanel({
                         className="rounded-full px-1.5 py-[1px] text-[9.5px] font-bold font-mono outline-none cursor-pointer border"
                         style={{
                           color: TONE_FG[RESULT_TONE[t.result]],
-                          borderColor: `${TONE_FG[RESULT_TONE[t.result]]}66`,
-                          background: `${TONE_FG[RESULT_TONE[t.result]]}1c`,
+                          borderColor: `color-mix(in srgb, ${TONE_FG[RESULT_TONE[t.result]]} 40%, transparent)`,
+                          background: `color-mix(in srgb, ${TONE_FG[RESULT_TONE[t.result]]} 11%, transparent)`,
                         }}
                       >
                         {RESULTS.map((r) => (
@@ -1031,7 +1031,7 @@ function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
       style={
         tone === 'idle'
           ? { color: C.tx4, borderColor: C.line2, background: C.inset }
-          : { color: fg, borderColor: `${fg}66`, background: `${fg}1c` }
+          : { color: fg, borderColor: `color-mix(in srgb, ${fg} 40%, transparent)`, background: `color-mix(in srgb, ${fg} 11%, transparent)` }
       }
     >
       {children}

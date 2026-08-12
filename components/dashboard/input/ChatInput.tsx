@@ -195,7 +195,7 @@ export default function ChatInput({
 
   return (
     <div
-      className="px-4 sm:px-8 pb-[18px] pt-[14px] bg-[#0F1117] border-t border-[#1E2535] flex-shrink-0 relative"
+      className="px-4 sm:px-8 pb-[18px] pt-[14px] bg-[var(--ground)] border-t border-[var(--line)] flex-shrink-0 relative"
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -203,7 +203,7 @@ export default function ChatInput({
     >
       {isDragging && (
         <div className="absolute inset-0 z-10 bg-indigo-900/40 border-2 border-dashed border-indigo-500 rounded-[10px] flex items-center justify-center pointer-events-none">
-          <span className="text-indigo-300 text-[14px] font-medium">파일을 여기에 놓으세요</span>
+          <span className="text-[var(--accent)] text-[14px] font-medium">파일을 여기에 놓으세요</span>
         </div>
       )}
       {/* 본문과 동일한 중앙 컬럼 폭으로 정렬 */}
@@ -214,13 +214,13 @@ export default function ChatInput({
           {attachments.map((att) => (
             <div
               key={att.id}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#1E2535] border border-[#2A3347] text-[12px] text-slate-400"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[var(--line)] border border-[var(--line-2)] text-[12px] text-[var(--tx-3)]"
             >
               {att.type === 'image' ? '🖼' : att.type === 'code' ? '💻' : '📎'}
               <span className="truncate max-w-[120px]">{att.name}</span>
               <button
                 onClick={() => removeAttachment(att.id)}
-                className="w-[14px] h-[14px] rounded-full bg-[#374151] text-slate-400 flex items-center justify-center text-[9px] hover:bg-red-800 hover:text-red-300 transition-colors ml-0.5"
+                className="w-[14px] h-[14px] rounded-full bg-[var(--line-2)] text-[var(--tx-3)] flex items-center justify-center text-[9px] hover:bg-red-800 hover:text-red-300 transition-colors ml-0.5"
               >
                 ✕
               </button>
@@ -231,14 +231,14 @@ export default function ChatInput({
 
       {/* Confluence 원클릭 워크플로우 배너 */}
       {detectedConfluenceUrl && (
-        <div className="mb-2.5 bg-[#161B27] border border-indigo-800/50 rounded-lg px-3 py-2.5">
+        <div className="mb-2.5 bg-[var(--panel)] border border-indigo-800/50 rounded-lg px-3 py-2.5">
           <div className="flex items-center gap-2 mb-2">
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--accent)] uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
               Confluence 페이지 감지됨
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 truncate mb-2.5">{detectedConfluenceUrl}</p>
+          <p className="text-[11px] text-[var(--tx-3)] truncate mb-2.5">{detectedConfluenceUrl}</p>
           <div className="flex gap-2">
             <button
               onClick={() =>
@@ -271,7 +271,7 @@ export default function ChatInput({
             <button
               onClick={handleSend}
               disabled={disabled}
-              className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-[#1E2535] border border-[#2A3347] text-slate-400 hover:text-slate-300 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-[var(--line)] border border-[var(--line-2)] text-[var(--tx-3)] hover:text-[var(--tx-2)] hover:border-[var(--tx-4)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               그냥 보내기
             </button>
@@ -281,7 +281,7 @@ export default function ChatInput({
 
       {/* Jira 원클릭 워크플로우 배너 */}
       {detectedJira && (
-        <div className="mb-2.5 bg-[#161B27] border border-amber-800/50 rounded-lg px-3 py-2.5">
+        <div className="mb-2.5 bg-[var(--panel)] border border-amber-800/50 rounded-lg px-3 py-2.5">
           <div className="flex items-center gap-2 mb-2">
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-400 uppercase tracking-wider">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
@@ -291,7 +291,7 @@ export default function ChatInput({
               {detectedJira.ticketId}
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 truncate mb-2.5">{detectedJira.url}</p>
+          <p className="text-[11px] text-[var(--tx-3)] truncate mb-2.5">{detectedJira.url}</p>
           <div className="flex gap-2">
             <button
               onClick={() =>
@@ -324,7 +324,7 @@ export default function ChatInput({
             <button
               onClick={handleSend}
               disabled={disabled}
-              className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-[#1E2535] border border-[#2A3347] text-slate-400 hover:text-slate-300 hover:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="px-3 py-1.5 text-[12px] font-medium rounded-md bg-[var(--line)] border border-[var(--line-2)] text-[var(--tx-3)] hover:text-[var(--tx-2)] hover:border-[var(--tx-4)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               그냥 보내기
             </button>
@@ -335,8 +335,8 @@ export default function ChatInput({
       {/* Input box */}
       <div
         className={[
-          'flex items-end bg-[#161B27] border rounded-[10px] px-3 py-2.5 gap-2 transition-colors',
-          focused ? 'border-indigo-600' : 'border-[#2A3347]',
+          'flex items-end bg-[var(--panel)] border rounded-[10px] px-3 py-2.5 gap-2 transition-colors',
+          focused ? 'border-indigo-600' : 'border-[var(--line-2)]',
         ].join(' ')}
       >
         {/* Left actions */}
@@ -352,7 +352,7 @@ export default function ChatInput({
           <button
             onClick={() => fileInputRef.current?.click()}
             title="파일 첨부"
-            className="w-[30px] h-[30px] rounded-md bg-[#1E2535] border border-[#2A3347] flex items-center justify-center text-slate-500 hover:text-slate-300 hover:border-slate-500 transition-colors text-[13px]"
+            className="w-[30px] h-[30px] rounded-md bg-[var(--line)] border border-[var(--line-2)] flex items-center justify-center text-[var(--tx-3)] hover:text-[var(--tx-2)] hover:border-[var(--tx-4)] transition-colors text-[13px]"
           >
             📎
           </button>
@@ -380,8 +380,8 @@ export default function ChatInput({
             className={[
               'w-[30px] h-[30px] rounded-md border flex items-center justify-center transition-colors text-[13px]',
               supportsImageAttachment(activeModel)
-                ? 'bg-[#1E2535] border-[#2A3347] text-slate-500 hover:text-slate-300 hover:border-slate-500 cursor-pointer'
-                : 'bg-[#131820] border-[#1E2535] text-slate-700 cursor-not-allowed opacity-50',
+                ? 'bg-[var(--line)] border-[var(--line-2)] text-[var(--tx-3)] hover:text-[var(--tx-2)] hover:border-[var(--tx-4)] cursor-pointer'
+                : 'bg-[var(--inset)] border-[var(--line)] text-[var(--tx-4)] cursor-not-allowed opacity-50',
             ].join(' ')}
           >
             🖼
@@ -394,14 +394,14 @@ export default function ChatInput({
             className={[
               'w-[30px] h-[30px] rounded-md border flex items-center justify-center transition-colors text-[13px]',
               codeMode
-                ? 'bg-[#2A1E4A] border-indigo-600 text-indigo-400'
-                : 'bg-[#1E2535] border-[#2A3347] text-slate-500 hover:text-slate-300 hover:border-slate-500',
+                ? 'bg-[var(--accent-bg)] border-indigo-600 text-[var(--accent)]'
+                : 'bg-[var(--line)] border-[var(--line-2)] text-[var(--tx-3)] hover:text-[var(--tx-2)] hover:border-[var(--tx-4)]',
             ].join(' ')}
           >
             {'</>'}
           </button>
 
-          <div className="w-px h-5 bg-[#2A3347] mx-0.5" />
+          <div className="w-px h-5 bg-[var(--line-2)] mx-0.5" />
         </div>
 
         {/* Textarea */}
@@ -417,7 +417,7 @@ export default function ChatInput({
           }
           disabled={disabled}
           rows={1}
-          className="flex-1 bg-transparent border-none outline-none resize-none text-[14px] text-slate-200 leading-relaxed placeholder:text-[#374151] min-h-[42px] max-h-[140px] font-[inherit] disabled:opacity-50"
+          className="flex-1 bg-transparent border-none outline-none resize-none text-[14px] text-[var(--tx-1)] leading-relaxed placeholder:text-[var(--tx-4)] min-h-[42px] max-h-[140px] font-[inherit] disabled:opacity-50"
           style={{
             fontFamily: codeMode ? "'SF Mono', 'Fira Code', monospace" : 'inherit',
           }}
@@ -448,7 +448,7 @@ export default function ChatInput({
         )}
       </div>
 
-      <p className="text-[11px] text-slate-600 mt-2 text-center">
+      <p className="text-[11px] text-[var(--tx-4)] mt-2 text-center">
         Enter 전송 · Shift+Enter 줄바꿈
       </p>
       </div>

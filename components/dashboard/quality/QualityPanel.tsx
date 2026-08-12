@@ -9,9 +9,9 @@ import QualityReport from './QualityReport';
  */
 export default function QualityPanel({ session }: { session: Session | null }) {
   return (
-    <aside className="w-[276px] bg-[#161B27] border-l border-[#1E2535] flex flex-col flex-shrink-0">
-      <div className="px-3.5 h-[42px] border-b border-[#1E2535] flex items-center">
-        <span className="text-[12px] font-semibold text-slate-300">품질 리포트</span>
+    <aside className="w-[276px] bg-[var(--panel)] border-l border-[var(--line)] flex flex-col flex-shrink-0">
+      <div className="px-3.5 h-[42px] border-b border-[var(--line)] flex items-center">
+        <span className="text-[12px] font-semibold text-[var(--tx-2)]">품질 리포트</span>
       </div>
       <div className="flex-1 overflow-y-auto p-3.5">
         <QualityReport session={session} />

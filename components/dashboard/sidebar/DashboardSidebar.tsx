@@ -40,7 +40,7 @@ const GROUP_STYLE: Record<GroupKey, GroupStyle> = {
   },
   today: {
     label: '오늘',
-    textClass: 'text-indigo-300',
+    textClass: 'text-[var(--accent)]',
     dotClass: 'bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.6)]',
     weightClass: 'font-bold',
   },
@@ -52,14 +52,14 @@ const GROUP_STYLE: Record<GroupKey, GroupStyle> = {
   },
   lastWeek: {
     label: '지난 7일',
-    textClass: 'text-slate-400',
-    dotClass: 'bg-slate-500',
+    textClass: 'text-[var(--tx-3)]',
+    dotClass: 'bg-[var(--tx-3)]',
     weightClass: 'font-semibold',
   },
   older: {
     label: '이전',
-    textClass: 'text-slate-600',
-    dotClass: 'bg-slate-700',
+    textClass: 'text-[var(--tx-4)]',
+    dotClass: 'bg-[var(--tx-4)]',
     weightClass: 'font-medium',
   },
 };
@@ -139,10 +139,10 @@ export default function DashboardSidebar({
   return (
     <aside
       style={{ width }}
-      className="relative bg-[#161B27] border-r border-[#1E2535] flex flex-col flex-shrink-0"
+      className="relative bg-[var(--panel)] border-r border-[var(--line)] flex flex-col flex-shrink-0"
     >
-      <div className="px-4 py-[14px] border-b border-[#1E2535] flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">
+      <div className="px-4 py-[14px] border-b border-[var(--line)] flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-[var(--tx-3)] uppercase tracking-wide">
           {label}
         </span>
         <button
@@ -156,19 +156,19 @@ export default function DashboardSidebar({
       {/* 검색 */}
       <div className="px-3 pt-2 pb-1.5">
         <div className="relative">
-          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-[11px] pointer-events-none">
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--tx-3)] text-[11px] pointer-events-none">
             🔍
           </span>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="제목·본문 검색"
-            className="w-full pl-7 pr-7 py-1.5 rounded-md bg-[#1E2535] border border-[#2A3347] text-[12px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-600"
+            className="w-full pl-7 pr-7 py-1.5 rounded-md bg-[var(--line)] border border-[var(--line-2)] text-[12px] text-[var(--tx-1)] placeholder:text-[var(--tx-4)] focus:outline-none focus:border-indigo-600"
           />
           {query && (
             <button
               onClick={() => setQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-[10px]"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--tx-3)] hover:text-[var(--tx-2)] text-[10px]"
               aria-label="검색어 지우기"
             >
               ✕
@@ -179,12 +179,12 @@ export default function DashboardSidebar({
 
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {sessions.length === 0 && (
-          <p className="text-[12px] text-slate-500 text-center py-8">
+          <p className="text-[12px] text-[var(--tx-3)] text-center py-8">
             아직 대화가 없습니다
           </p>
         )}
         {sessions.length > 0 && totalHits === 0 && (
-          <p className="text-[12px] text-slate-500 text-center py-8">
+          <p className="text-[12px] text-[var(--tx-3)] text-center py-8">
             검색 결과가 없습니다
           </p>
         )}
@@ -200,7 +200,7 @@ export default function DashboardSidebar({
             >
               <span className={`w-1.5 h-1.5 rounded-full ${group.style.dotClass}`} />
               <span>{group.style.label}</span>
-              <span className="ml-auto text-[10px] text-slate-600 font-normal normal-case tracking-normal">
+              <span className="ml-auto text-[10px] text-[var(--tx-4)] font-normal normal-case tracking-normal">
                 {group.sessions.length}
               </span>
             </div>
@@ -235,11 +235,11 @@ export default function DashboardSidebar({
       <Link
         href="/portfolio"
         target="_blank"
-        className="mx-2 mb-2 px-3 py-2.5 rounded-lg border border-[#1E2535] bg-[#0E1320] flex items-center gap-2 text-[12px] text-slate-400 hover:border-indigo-500/40 hover:text-indigo-300 transition-colors"
+        className="mx-2 mb-2 px-3 py-2.5 rounded-lg border border-[var(--line)] bg-[var(--inset)] flex items-center gap-2 text-[12px] text-[var(--tx-3)] hover:border-indigo-500/40 hover:text-[var(--accent)] transition-colors"
       >
         <span className="text-[13px]">📄</span>
         <span className="font-medium">포트폴리오</span>
-        <span className="ml-auto text-[11px] text-slate-600">↗</span>
+        <span className="ml-auto text-[11px] text-[var(--tx-4)]">↗</span>
       </Link>
 
       {/* 리사이즈 핸들 — 오른쪽 경계를 드래그해 너비 조절 */}
@@ -292,8 +292,8 @@ function SessionItem({
       className={[
         'group px-3 py-2.5 rounded-lg cursor-pointer mb-0.5 border transition-colors',
         isActive
-          ? 'bg-[#1E2A45] border-[#2A3F6B]'
-          : 'border-transparent hover:bg-[#1A2030]',
+          ? 'bg-[var(--accent-bg)] border-[var(--accent-deep)]'
+          : 'border-transparent hover:bg-[var(--panel-hi)]',
       ].join(' ')}
     >
       {isEditing ? (
@@ -304,7 +304,7 @@ function SessionItem({
         />
       ) : (
         <div
-          className="text-[13px] text-slate-300 font-medium mb-1 truncate"
+          className="text-[13px] text-[var(--tx-2)] font-medium mb-1 truncate"
           onDoubleClick={(e) => {
             e.stopPropagation();
             if (isDraft) return; // draft는 첫 메시지에서 자동 제목 부여 — 편집 금지
@@ -316,7 +316,7 @@ function SessionItem({
         </div>
       )}
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[11px] text-[var(--tx-3)]">
           {format(new Date(session.updatedAt), 'MM/dd HH:mm', { locale: ko })}
         </span>
         <div className="flex items-center gap-1">
@@ -329,17 +329,17 @@ function SessionItem({
             className={[
               'w-4 h-4 rounded flex items-center justify-center transition-all text-[10px]',
               isDraft
-                ? 'opacity-20 cursor-not-allowed text-slate-600'
+                ? 'opacity-20 cursor-not-allowed text-[var(--tx-4)]'
                 : session.pinned
                   ? 'text-amber-400 hover:text-amber-300'
-                  : 'opacity-0 group-hover:opacity-100 text-slate-500 hover:text-amber-400',
+                  : 'opacity-0 group-hover:opacity-100 text-[var(--tx-3)] hover:text-amber-400',
             ].join(' ')}
           >
             {session.pinned ? '★' : '☆'}
           </button>
           <button
             onClick={onDelete}
-            className="opacity-0 group-hover:opacity-100 w-4 h-4 rounded flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-900/30 transition-all text-[10px]"
+            className="opacity-0 group-hover:opacity-100 w-4 h-4 rounded flex items-center justify-center text-[var(--tx-3)] hover:text-red-400 hover:bg-red-900/30 transition-all text-[10px]"
             title="삭제"
           >
             ✕
@@ -390,7 +390,7 @@ function RenameInput({
         }
       }}
       placeholder="제목 입력 (비우면 자동 제목)"
-      className="w-full mb-1 px-1.5 py-0.5 rounded bg-[#0F1117] border border-indigo-600 text-[13px] text-slate-200 font-medium outline-none"
+      className="w-full mb-1 px-1.5 py-0.5 rounded bg-[var(--ground)] border border-indigo-600 text-[13px] text-[var(--tx-1)] font-medium outline-none"
     />
   );
 }
@@ -403,7 +403,7 @@ function ModelTag({
   label: string;
 }) {
   const bg: Record<string, string> = {
-    claude: 'bg-[#1E1A3A] text-indigo-400',
+    claude: 'bg-[var(--accent-bg)] text-[var(--accent)]',
     gemini: 'bg-[#162010] text-green-400',
     codex: 'bg-[#1A1A2E] text-purple-400',
   };

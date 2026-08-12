@@ -84,14 +84,14 @@ export default function SourceInput({
   }
 
   return (
-    <div className="rounded-[13px] border border-[#1E2535] bg-[#161B27] p-3.5">
+    <div className="rounded-[13px] border border-[var(--line)] bg-[var(--panel)] p-3.5">
       <div className="flex items-start justify-between gap-2.5 mb-2.5">
         <div>
-          <div className="text-[13px] font-[640] tracking-[-0.01em] text-slate-100">
+          <div className="text-[13px] font-[640] tracking-[-0.01em] text-[var(--tx-1)]">
             입력 — 소스 여러 개
           </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">
-            티켓·기획서 URL을 <b className="text-slate-400">줄 단위로 전부</b> 붙여넣는다 · 텍스트
+          <div className="text-[11px] text-[var(--tx-3)] mt-0.5">
+            티켓·기획서 URL을 <b className="text-[var(--tx-3)]">줄 단위로 전부</b> 붙여넣는다 · 텍스트
             직입도 가능
           </div>
         </div>
@@ -99,7 +99,7 @@ export default function SourceInput({
           <span
             className="inline-flex items-center px-[7px] py-[2px] rounded-full border font-mono
                        text-[9.5px] font-bold whitespace-nowrap
-                       text-[#60A5FA] border-[#60A5FA66] bg-[#60A5FA1c]"
+                       text-[var(--info)] border-[color-mix(in_srgb,var(--info)_40%,transparent)] bg-[color-mix(in_srgb,var(--info)_12%,transparent)]"
           >
             {parsed.urls.length}개 소스
           </span>
@@ -107,8 +107,8 @@ export default function SourceInput({
       </div>
 
       {/* URLS 필드 — 시안의 .field 그대로 (좌측 라벨 + 모노 본문) */}
-      <div className="flex items-start gap-2 px-3 py-2.5 rounded-[9px] border border-[#2A3347] bg-[#0F1520]">
-        <span className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-[#818CF8] pt-1">
+      <div className="flex items-start gap-2 px-3 py-2.5 rounded-[9px] border border-[var(--line-2)] bg-[var(--inset)]">
+        <span className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-[var(--accent)] pt-1">
           URLS
         </span>
         <textarea
@@ -127,15 +127,15 @@ export default function SourceInput({
             'https://wemeet2025.atlassian.net/browse/RV-1284\nhttps://wemeet2025.atlassian.net/wiki/…/배차취소-기획-v3'
           }
           className="flex-1 min-w-0 bg-transparent border-none outline-none resize-none
-                     font-mono text-[11.5px] leading-[1.85] text-slate-300
-                     placeholder:text-slate-600 disabled:opacity-50"
+                     font-mono text-[11.5px] leading-[1.85] text-[var(--tx-2)]
+                     placeholder:text-[var(--tx-4)] disabled:opacity-50"
         />
       </div>
 
       {/* 텍스트 직입 — /create-tc 커맨드 대체 경로 */}
       {showText && (
-        <div className="flex items-start gap-2 px-3 py-2.5 mt-2 rounded-[9px] border border-[#2A3347] bg-[#0F1520]">
-          <span className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-slate-500 pt-1">
+        <div className="flex items-start gap-2 px-3 py-2.5 mt-2 rounded-[9px] border border-[var(--line-2)] bg-[var(--inset)]">
+          <span className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-[var(--tx-3)] pt-1">
             TEXT
           </span>
           <textarea
@@ -146,13 +146,13 @@ export default function SourceInput({
             autoFocus
             placeholder="티켓 본문 붙여넣기 · 분석 지시 · 후속 질문 — 자유 텍스트"
             className="flex-1 min-w-0 bg-transparent border-none outline-none resize-y
-                       text-[12px] leading-[1.7] text-slate-300 placeholder:text-slate-600 disabled:opacity-50"
+                       text-[12px] leading-[1.7] text-[var(--tx-2)] placeholder:text-[var(--tx-4)] disabled:opacity-50"
           />
         </div>
       )}
 
       <div className="flex gap-1.5 mt-2.5 justify-between items-center">
-        <div className="font-mono text-[10px] text-slate-600">
+        <div className="font-mono text-[10px] text-[var(--tx-4)]">
           {parsed.urls.length > 0 || freeText ? (
             <>
               {[
@@ -167,7 +167,7 @@ export default function SourceInput({
             </>
           ) : (
             <>
-              텍스트 직입은 <span className="text-slate-500">/create-tc</span> 커맨드를 대체
+              텍스트 직입은 <span className="text-[var(--tx-3)]">/create-tc</span> 커맨드를 대체
             </>
           )}
         </div>
@@ -175,16 +175,16 @@ export default function SourceInput({
           <button
             onClick={() => setShowText((v) => !v)}
             disabled={busy}
-            className="px-2.5 py-1 rounded-[6px] border border-[#2A3347] bg-[#0F1520] text-slate-300
-                       text-[10.5px] font-semibold hover:text-white disabled:opacity-40"
+            className="px-2.5 py-1 rounded-[6px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)]
+                       text-[10.5px] font-semibold hover:text-[var(--tx-1)] disabled:opacity-40"
           >
             {showText ? '텍스트 닫기' : '텍스트 추가'}
           </button>
           <button
             onClick={submit}
             disabled={!canSubmit}
-            className="px-2.5 py-1 rounded-[6px] border border-[#4F46E5] bg-[#4F46E5] text-white
-                       text-[10.5px] font-semibold hover:bg-[#6366F1]
+            className="px-2.5 py-1 rounded-[6px] border border-[var(--accent-deep)] bg-[var(--accent-deep)] text-white
+                       text-[10.5px] font-semibold hover:bg-[var(--accent)]
                        disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {busy ? (busyLabel ?? '진행 중…') : '▶ 일괄 읽기'}

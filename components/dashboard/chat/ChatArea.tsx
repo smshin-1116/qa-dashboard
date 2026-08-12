@@ -28,15 +28,15 @@ export default function ChatArea({
   }, [session?.messages, streamingContent, toolStatus]);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#0F1117]">
+    <div className="flex-1 flex flex-col overflow-hidden bg-[var(--ground)]">
       {/* Chat toolbar */}
-      <div className="flex items-center justify-between px-6 py-2 bg-[#111520] border-b border-[#1E2535] flex-shrink-0">
-        <div className="flex items-center gap-2 text-[12px] text-slate-500">
+      <div className="flex items-center justify-between px-6 py-2 bg-[var(--panel-hi)] border-b border-[var(--line)] flex-shrink-0">
+        <div className="flex items-center gap-2 text-[12px] text-[var(--tx-3)]">
           {session ? (
             <>
               <span>세션</span>
-              <strong className="text-slate-400">{session.title}</strong>
-              <span className="text-slate-600">·</span>
+              <strong className="text-[var(--tx-3)]">{session.title}</strong>
+              <span className="text-[var(--tx-4)]">·</span>
               <span>{session.messages.length}개 메시지</span>
             </>
           ) : (
@@ -48,13 +48,18 @@ export default function ChatArea({
         {hasTcResult ? (
           <button
             onClick={onDownloadXlsx}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#0D2A1A] border border-[#166534] text-green-400 text-[12px] font-semibold hover:bg-[#14532D] hover:border-green-600 transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border text-[12px] font-semibold transition-colors"
+            style={{
+              color: 'var(--ok)',
+              borderColor: 'color-mix(in srgb, var(--ok) 45%, transparent)',
+              background: 'color-mix(in srgb, var(--ok) 12%, transparent)',
+            }}
           >
             <span className="text-sm">↓</span>
             TC 다운로드 .xlsx
           </button>
         ) : (
-          <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1A1E2A] border border-[#2A3347] text-[#374151] text-[12px] font-semibold cursor-not-allowed">
+          <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[var(--inset)] border border-[var(--line-2)] text-[var(--tx-4)] text-[12px] font-semibold cursor-not-allowed">
             <span className="text-sm">↓</span>
             TC 다운로드 .xlsx
           </div>
@@ -109,12 +114,12 @@ function WorkingStatus({ toolStatus, hasContent }: { toolStatus: string; hasCont
       </div>
 
       {toolStatus ? (
-        <span className="text-[13px] text-slate-400">
-          <span className="text-indigo-400 font-medium">{toolStatus}</span>
-          <span className="text-slate-600"> 중...</span>
+        <span className="text-[13px] text-[var(--tx-3)]">
+          <span className="text-[var(--accent)] font-medium">{toolStatus}</span>
+          <span className="text-[var(--tx-4)]"> 중...</span>
         </span>
       ) : (
-        <span className="text-[13px] text-slate-500">생각 중...</span>
+        <span className="text-[13px] text-[var(--tx-3)]">생각 중...</span>
       )}
     </div>
   );
@@ -126,8 +131,8 @@ function EmptyState() {
       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-2xl">
         🤖
       </div>
-      <p className="text-slate-400 text-[15px] font-medium">QA Agent에게 물어보세요</p>
-      <p className="text-slate-600 text-[13px] max-w-xs">
+      <p className="text-[var(--tx-3)] text-[15px] font-medium">QA Agent에게 물어보세요</p>
+      <p className="text-[var(--tx-4)] text-[13px] max-w-xs">
         Jira 티켓 생성, Figma 분석, TC 생성 등 QA 업무를 자동화합니다
       </p>
     </div>

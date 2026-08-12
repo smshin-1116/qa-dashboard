@@ -45,9 +45,9 @@ export default function RightPanel({
   }, [tabs, activeTab]);
 
   return (
-    <aside className="w-[276px] bg-[#161B27] border-l border-[#1E2535] flex flex-col flex-shrink-0">
+    <aside className="w-[276px] bg-[var(--panel)] border-l border-[var(--line)] flex flex-col flex-shrink-0">
       {/* Tabs */}
-      <div className="flex border-b border-[#1E2535]">
+      <div className="flex border-b border-[var(--line)]">
         {tabs.map((tab) => {
           const dot = tab === '품질' && hasTcData;
           return (
@@ -57,8 +57,8 @@ export default function RightPanel({
               className={[
                 'flex-1 py-[11px] px-0.5 text-center text-[11px] font-medium transition-colors border-b-2 relative',
                 activeTab === tab
-                  ? 'text-indigo-400 border-indigo-600'
-                  : 'text-slate-500 border-transparent hover:text-slate-400',
+                  ? 'text-[var(--accent)] border-indigo-600'
+                  : 'text-[var(--tx-3)] border-transparent hover:text-[var(--tx-3)]',
               ].join(' ')}
             >
               {tab}
@@ -91,21 +91,21 @@ export default function RightPanel({
 function McpTab({ mcpTools }: { mcpTools: McpTool[] }) {
   return (
     <div>
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">연결된 MCP 서버</p>
+      <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider mb-2.5">연결된 MCP 서버</p>
       {mcpTools.map((mcp) => (
-        <div key={mcp.name} className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3 mb-2">
+        <div key={mcp.name} className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3 mb-2">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[12px] font-semibold text-slate-300 flex items-center gap-1.5">
+            <span className="text-[12px] font-semibold text-[var(--tx-2)] flex items-center gap-1.5">
               {mcp.name === 'Figma' ? '🎨' : mcp.name === 'Jira' ? '📋' : '🐙'}
               {mcp.name}
             </span>
-            <span className={['text-[10px] px-2 py-0.5 rounded-full', mcp.connected ? 'bg-[#0D2A1A] text-green-400' : 'bg-[#1A2535] text-slate-500'].join(' ')}>
+            <span className={['text-[10px] px-2 py-0.5 rounded-full', mcp.connected ? 'bg-[color-mix(in_srgb,var(--ok)_14%,transparent)] text-green-400' : 'bg-[var(--panel-hi)] text-[var(--tx-3)]'].join(' ')}>
               {mcp.connected ? 'connected' : 'disconnected'}
             </span>
           </div>
           <div className="flex flex-wrap gap-1">
             {mcp.tools.map((tool) => (
-              <span key={tool} className="text-[10px] px-1.5 py-0.5 rounded bg-[#1E2535] text-slate-500 border border-[#2A3347]">
+              <span key={tool} className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--line)] text-[var(--tx-3)] border border-[var(--line-2)]">
                 {tool}
               </span>
             ))}
@@ -119,14 +119,14 @@ function McpTab({ mcpTools }: { mcpTools: McpTool[] }) {
 // ─── 세션 탭 ─────────────────────────────────────────────────────────────────
 
 function SessionInfoTab({ session }: { session: Session | null }) {
-  if (!session) return <p className="text-[12px] text-slate-500 py-4 text-center">활성 세션 없음</p>;
+  if (!session) return <p className="text-[12px] text-[var(--tx-3)] py-4 text-center">활성 세션 없음</p>;
 
   const userCount = session.messages.filter((m) => m.role === 'user').length;
   const assistantCount = session.messages.filter((m) => m.role === 'assistant').length;
 
   return (
     <div>
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">세션 통계</p>
+      <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider mb-2.5">세션 통계</p>
       <div className="space-y-2">
         <StatRow label="전체 메시지" value={session.messages.length} />
         <StatRow label="사용자 입력" value={userCount} />
@@ -139,9 +139,9 @@ function SessionInfoTab({ session }: { session: Session | null }) {
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex justify-between py-1.5 border-b border-[#1E2535]">
-      <span className="text-[12px] text-slate-500">{label}</span>
-      <span className="text-[12px] font-semibold text-slate-300">{value}</span>
+    <div className="flex justify-between py-1.5 border-b border-[var(--line)]">
+      <span className="text-[12px] text-[var(--tx-3)]">{label}</span>
+      <span className="text-[12px] font-semibold text-[var(--tx-2)]">{value}</span>
     </div>
   );
 }

@@ -27,31 +27,31 @@ export default function QualityReport({ session }: { session: Session | null }) 
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
-        <div className="w-10 h-10 rounded-xl bg-[#1E2535] flex items-center justify-center text-xl">📋</div>
-        <p className="text-[12px] text-slate-500">TC 데이터 없음</p>
-        <p className="text-[11px] text-slate-600">TC를 생성하면 자동으로 품질 분석이 실행됩니다</p>
+        <div className="w-10 h-10 rounded-xl bg-[var(--line)] flex items-center justify-center text-xl">📋</div>
+        <p className="text-[12px] text-[var(--tx-3)]">TC 데이터 없음</p>
+        <p className="text-[11px] text-[var(--tx-4)]">TC를 생성하면 자동으로 품질 분석이 실행됩니다</p>
       </div>
     );
   }
 
   const gradeColor: Record<string, string> = {
-    A: '#34D399', B: '#60A5FA', C: '#FBBF24', D: '#F87171', F: '#EF4444',
+    A: 'var(--ok)', B: 'var(--info)', C: 'var(--warn)', D: 'var(--crit)', F: 'var(--crit)',
   };
-  const color = gradeColor[result.grade] ?? '#94A3B8';
+  const color = gradeColor[result.grade] ?? 'var(--tx-3)';
 
   return (
     <div className="space-y-3">
-      <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
+      <div className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3">
         <div className="flex items-center justify-between mb-2.5">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">품질 점수</span>
-          <span className="text-[10px] text-slate-500">{result.tcCount}개 TC 분석</span>
+          <span className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider">품질 점수</span>
+          <span className="text-[10px] text-[var(--tx-3)]">{result.tcCount}개 TC 분석</span>
         </div>
         <div className="flex items-end gap-3 mb-2.5">
           <span className="text-[36px] font-bold leading-none" style={{ color }}>
             {result.score}
           </span>
           <div className="mb-1">
-            <span className="text-[11px] text-slate-500">/ 100</span>
+            <span className="text-[11px] text-[var(--tx-3)]">/ 100</span>
             <div className="flex items-center gap-1 mt-0.5">
               <span className="text-[13px] font-bold px-1.5 py-0.5 rounded" style={{ color, backgroundColor: `${color}18` }}>
                 {result.grade}등급
@@ -59,43 +59,43 @@ export default function QualityReport({ session }: { session: Session | null }) 
             </div>
           </div>
         </div>
-        <div className="h-1.5 bg-[#1E2535] rounded-full overflow-hidden">
+        <div className="h-1.5 bg-[var(--line)] rounded-full overflow-hidden">
           <div className="h-full rounded-full transition-all" style={{ width: `${result.score}%`, backgroundColor: color }} />
         </div>
       </div>
 
-      <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">검증단계 분포</p>
-        <PhaseBar label="정상" count={result.phaseDistribution.정상} total={result.phaseDistribution.total} color="#34D399" />
-        <PhaseBar label="부정" count={result.phaseDistribution.부정} total={result.phaseDistribution.total} color="#F87171" />
-        <PhaseBar label="예외" count={result.phaseDistribution.예외} total={result.phaseDistribution.total} color="#FBBF24" />
+      <div className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3">
+        <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider mb-2.5">검증단계 분포</p>
+        <PhaseBar label="정상" count={result.phaseDistribution.정상} total={result.phaseDistribution.total} color="var(--ok)" />
+        <PhaseBar label="부정" count={result.phaseDistribution.부정} total={result.phaseDistribution.total} color="var(--crit)" />
+        <PhaseBar label="예외" count={result.phaseDistribution.예외} total={result.phaseDistribution.total} color="var(--warn)" />
         {result.phaseDistribution.기타 > 0 && (
-          <PhaseBar label="기타" count={result.phaseDistribution.기타} total={result.phaseDistribution.total} color="#6B7280" />
+          <PhaseBar label="기타" count={result.phaseDistribution.기타} total={result.phaseDistribution.total} color="var(--tx-4)" />
         )}
-        <div className="mt-2 pt-2 border-t border-[#1E2535] flex items-center justify-between">
-          <span className="text-[11px] text-slate-500">부정+예외</span>
+        <div className="mt-2 pt-2 border-t border-[var(--line)] flex items-center justify-between">
+          <span className="text-[11px] text-[var(--tx-3)]">부정+예외</span>
           <span
             className="text-[11px] font-semibold"
-            style={{ color: result.phaseDistribution.negativeRatio >= 49 && result.phaseDistribution.negativeRatio <= 65 ? '#34D399' : '#FBBF24' }}
+            style={{ color: result.phaseDistribution.negativeRatio >= 49 && result.phaseDistribution.negativeRatio <= 65 ? 'var(--ok)' : 'var(--warn)' }}
           >
             {result.phaseDistribution.negativeRatio}%
-            <span className="text-slate-600 font-normal ml-1">(목표 49~65%)</span>
+            <span className="text-[var(--tx-4)] font-normal ml-1">(목표 49~65%)</span>
           </span>
         </div>
       </div>
 
-      <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">EVAL 체크</p>
+      <div className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3">
+        <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider mb-2">EVAL 체크</p>
         <div className="space-y-1.5">
           {result.checks.map((check) => (
             <div key={check.id} className="flex items-start gap-2">
               <StatusIcon status={check.status} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="text-[11px] text-slate-400 truncate">{check.label}</span>
+                  <span className="text-[11px] text-[var(--tx-3)] truncate">{check.label}</span>
                   <StatusBadge status={check.status} />
                 </div>
-                <p className="text-[10px] text-slate-600 mt-0.5 leading-snug">{check.detail}</p>
+                <p className="text-[10px] text-[var(--tx-4)] mt-0.5 leading-snug">{check.detail}</p>
               </div>
             </div>
           ))}
@@ -103,8 +103,8 @@ export default function QualityReport({ session }: { session: Session | null }) 
       </div>
 
       {result.issues.length > 0 ? (
-        <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+        <div className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3">
+          <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider mb-2">
             발견 이슈 ({result.issues.length})
           </p>
           <div className="space-y-2">
@@ -114,11 +114,11 @@ export default function QualityReport({ session }: { session: Session | null }) 
                   <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ color: severityColor(issue.severity), backgroundColor: `${severityColor(issue.severity)}18` }}>
                     {issue.severity}
                   </span>
-                  <span className="text-[11px] text-slate-300 font-medium">{issue.label}</span>
+                  <span className="text-[11px] text-[var(--tx-2)] font-medium">{issue.label}</span>
                 </div>
-                <p className="text-[10px] text-slate-500 leading-snug">{issue.detail}</p>
+                <p className="text-[10px] text-[var(--tx-3)] leading-snug">{issue.detail}</p>
                 {issue.tcIds && issue.tcIds.length > 0 && (
-                  <p className="text-[10px] text-slate-600 mt-0.5 truncate">
+                  <p className="text-[10px] text-[var(--tx-4)] mt-0.5 truncate">
                     {issue.tcIds.slice(0, 5).join(', ')}{issue.tcIds.length > 5 ? ` 외 ${issue.tcIds.length - 5}건` : ''}
                   </p>
                 )}
@@ -176,15 +176,15 @@ function SheetsExportSection({ rows }: { rows: TcRow[] }) {
   const sheetsLink = spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : '';
 
   return (
-    <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Sheets 내보내기</p>
+    <div className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3">
+      <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider mb-2">Sheets 내보내기</p>
       <input
         type="text"
         value={sheetsUrl}
         onChange={(e) => setSheetsUrl(e.target.value)}
         placeholder="Sheets URL 또는 ID 붙여넣기..."
         disabled={status === 'loading'}
-        className="w-full bg-[#161B27] border border-[#2A3347] rounded-md px-2.5 py-1.5 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
+        className="w-full bg-[var(--panel)] border border-[var(--line-2)] rounded-md px-2.5 py-1.5 text-[11px] text-[var(--tx-2)] placeholder:text-[var(--tx-4)] outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
       />
       <button
         onClick={handleExport}
@@ -197,7 +197,7 @@ function SheetsExportSection({ rows }: { rows: TcRow[] }) {
         <div className="mt-2 space-y-0.5">
           <p className="text-[10px] text-emerald-400">✓ {message} — {resultSheetName}</p>
           {sheetsLink && (
-            <a href={sheetsLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-400 hover:underline block">
+            <a href={sheetsLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[var(--accent)] hover:underline block">
               Sheets에서 열기 →
             </a>
           )}
@@ -214,11 +214,11 @@ function PhaseBar({ label, count, total, color }: { label: string; count: number
   const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
     <div className="flex items-center gap-2 mb-1.5">
-      <span className="text-[11px] text-slate-500 w-8 flex-shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 bg-[#1E2535] rounded-full overflow-hidden">
+      <span className="text-[11px] text-[var(--tx-3)] w-8 flex-shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 bg-[var(--line)] rounded-full overflow-hidden">
         <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="text-[10px] text-slate-500 w-8 text-right flex-shrink-0">{pct}%</span>
+      <span className="text-[10px] text-[var(--tx-3)] w-8 text-right flex-shrink-0">{pct}%</span>
     </div>
   );
 }
@@ -236,8 +236,8 @@ function StatusBadge({ status }: { status: CheckStatus }) {
 }
 
 function severityColor(s: string): string {
-  if (s === 'CRITICAL') return '#EF4444';
-  if (s === 'HIGH') return '#F87171';
-  if (s === 'MEDIUM') return '#FBBF24';
-  return '#94A3B8';
+  if (s === 'CRITICAL') return 'var(--crit)';
+  if (s === 'HIGH') return 'var(--crit)';
+  if (s === 'MEDIUM') return 'var(--warn)';
+  return 'var(--tx-3)';
 }

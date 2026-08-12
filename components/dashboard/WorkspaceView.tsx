@@ -492,15 +492,15 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
   // 스토어가 아직 이 워크스페이스로 전환되기 전이면 로딩 (라우트 전환 직후 깜빡임 방지)
   if (!isLoaded || activeKind !== workspaceKey) {
     return (
-      <div className="h-screen bg-[#0F1117] flex items-center justify-center">
-        <div className="text-slate-500 text-sm">로딩 중...</div>
+      <div className="h-screen bg-[var(--ground)] flex items-center justify-center">
+        <div className="text-[var(--tx-3)] text-sm">로딩 중...</div>
       </div>
     );
   }
 
   return (
     <>
-      <div className="h-screen flex flex-col overflow-hidden bg-[#0F1117]">
+      <div className="h-screen flex flex-col overflow-hidden bg-[var(--ground)]">
         <DashboardHeader
           activeModel={activeModel}
           onModelChange={handleModelChangeRequest}
@@ -540,12 +540,12 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                   />
 
                   {/* ── 진행 · 모델 분담 ─────────────────────────────── */}
-                  <div className="rounded-[13px] border border-[#1E2535] bg-[#161B27] p-3.5">
+                  <div className="rounded-[13px] border border-[var(--line)] bg-[var(--panel)] p-3.5">
                     <button
                       onClick={() => setPipelineOpen((v) => !v)}
-                      className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100 hover:text-white"
+                      className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--tx-1)] hover:text-[var(--tx-1)]"
                     >
-                      <span className="text-[10px] text-slate-500">{pipelineOpen ? '▾' : '▸'}</span>
+                      <span className="text-[10px] text-[var(--tx-3)]">{pipelineOpen ? '▾' : '▸'}</span>
                       진행 · 모델 분담
                     </button>
                     {/*
@@ -568,8 +568,8 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                             st === 'done'
                               ? 'border-[#10A37F66] bg-[#10A37F1c] text-[#10A37F]'
                               : st === 'run'
-                                ? 'border-[#FBBF2466] bg-[#FBBF241c] text-[#FBBF24]'
-                                : 'border-[#2A3347] bg-[#0F1520] text-slate-600',
+                                ? 'border-[var(--warn)66] bg-[var(--warn)1c] text-[var(--warn)]'
+                                : 'border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-4)]',
                           ].join(' ')}
                           title={
                             st === 'wait'
@@ -582,12 +582,12 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                           {label}
                         </span>
                       ))}
-                      <span className="text-slate-600">→</span>
-                      <span className="px-2 py-0.5 rounded border border-[#4F46E566] bg-[#1E1A3A] text-indigo-300">
+                      <span className="text-[var(--tx-4)]">→</span>
+                      <span className="px-2 py-0.5 rounded border border-[var(--accent-deep)66] bg-[var(--accent-bg)] text-[var(--accent)]">
                         ③~⑥ 설계·작성·리뷰·수정 (아래)
                       </span>
-                      <span className="text-slate-600">→</span>
-                      <span className="px-2 py-0.5 rounded border border-[#2A3347] bg-[#0F1520] text-slate-400">
+                      <span className="text-[var(--tx-4)]">→</span>
+                      <span className="px-2 py-0.5 rounded border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-3)]">
                         ⑦ ✅ 수행 (TC 카드)
                       </span>
                     </div>
@@ -605,12 +605,12 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
 
                   {/* ── ⓪ 소스 보드 · ① 교차 분석 · ② 확인 게이트 ────── */}
                   {absorb.status === 'running' && (
-                    <div className="rounded-[13px] border border-[#1E2535] bg-[#161B27] p-3.5 flex items-center gap-2.5">
+                    <div className="rounded-[13px] border border-[var(--line)] bg-[var(--panel)] p-3.5 flex items-center gap-2.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[#10A37F] animate-pulse" />
-                      <span className="text-[12px] text-slate-300">
+                      <span className="text-[12px] text-[var(--tx-2)]">
                         ⓪ 개별 흡수 · ① 교차 분석 — Codex 세션 1개로 처리 중 (Claude 토큰 0)
                       </span>
-                      <span className="font-mono text-[10px] text-slate-600 ml-auto">
+                      <span className="font-mono text-[10px] text-[var(--tx-4)] ml-auto">
                         소스 수에 따라 1~5분
                       </span>
                     </div>
@@ -627,7 +627,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
 
                   {/* ── 분석 대화 — 응답이 흐르는 곳 (입력은 상단 카드) ── */}
                   {((activeSession?.messages.length ?? 0) > 0 || isStreaming) && (
-                    <div className="h-[46vh] flex flex-col rounded-[13px] border border-[#1E2535] overflow-hidden">
+                    <div className="h-[46vh] flex flex-col rounded-[13px] border border-[var(--line)] overflow-hidden">
                       <ChatArea
                         session={activeSession}
                         isStreaming={isStreaming && streamingSessionId === activeSession?.id}

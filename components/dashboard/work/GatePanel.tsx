@@ -17,20 +17,20 @@ import type { Contract, ContractDecision } from '@/lib/workspace/contract';
  */
 
 const C = {
-  inset: '#0F1520',
-  panel: '#161B27',
-  line: '#1E2535',
-  line2: '#2A3347',
-  tx1: '#E8ECF5',
-  tx2: '#A8B2C7',
-  tx3: '#6C7891',
-  tx4: '#4A5468',
-  accent: '#818CF8',
-  accentDeep: '#4F46E5',
-  ok: '#34D399',
-  info: '#60A5FA',
-  warn: '#FBBF24',
-  crit: '#F87171',
+  inset: 'var(--inset)',
+  panel: 'var(--panel)',
+  line: 'var(--line)',
+  line2: 'var(--line-2)',
+  tx1: 'var(--tx-1)',
+  tx2: 'var(--tx-2)',
+  tx3: 'var(--tx-3)',
+  tx4: 'var(--tx-4)',
+  accent: 'var(--accent)',
+  accentDeep: 'var(--accent-deep)',
+  ok: 'var(--ok)',
+  info: 'var(--info)',
+  warn: 'var(--warn)',
+  crit: 'var(--crit)',
   /** Codex 담당 표시 — 시안의 --codex */
   codex: '#10A37F',
 } as const;
@@ -495,7 +495,7 @@ function Pill({ fg, children }: { fg: string; children: React.ReactNode }) {
     <span
       className="inline-flex items-center gap-1 px-[7px] py-[2px] rounded-full border
                  font-mono text-[9.5px] font-bold tracking-[.03em] whitespace-nowrap"
-      style={{ color: fg, borderColor: `${fg}66`, background: `${fg}1c` }}
+      style={{ color: fg, borderColor: `color-mix(in srgb, ${fg} 40%, transparent)`, background: `color-mix(in srgb, ${fg} 11%, transparent)` }}
     >
       {children}
     </span>

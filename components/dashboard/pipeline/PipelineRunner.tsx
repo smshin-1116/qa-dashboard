@@ -243,9 +243,9 @@ export default function PipelineRunner({
   return (
     <div className="space-y-3">
       {/* URL 입력 + 실행 버튼 — hideInput이면 상태 표시만 남긴다 (입력은 상단 카드 한 곳) */}
-      <div className="bg-[#0F1520] border border-[#1E2535] rounded-lg p-3">
+      <div className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+          <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider">
             {hideInput ? '자동 실행 — 상단 입력 카드에서 시작' : '자동 실행'}
           </p>
           {mockInfo && (
@@ -270,7 +270,7 @@ export default function PipelineRunner({
             onChange={(e) => setConfluenceUrl(e.target.value)}
             placeholder="Confluence URL 붙여넣기..."
             disabled={isRunning}
-            className="w-full bg-[#161B27] border border-[#2A3347] rounded-md px-2.5 py-1.5 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
+            className="w-full bg-[var(--panel)] border border-[var(--line-2)] rounded-md px-2.5 py-1.5 text-[11px] text-[var(--tx-2)] placeholder:text-[var(--tx-4)] outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
           />
         )}
         {isRunning ? (
@@ -315,8 +315,8 @@ export default function PipelineRunner({
                 className={[
                   'flex items-start gap-2.5 px-3 py-2 rounded-lg transition-all',
                   isRunningStage ? 'bg-indigo-900/20 border border-indigo-800/40' :
-                  isDoneStage ? 'bg-[#0F1520]/60' :
-                  isActiveManual ? 'bg-[#1A1F30] border border-[#2A3347]' :
+                  isDoneStage ? 'bg-[var(--inset)]/60' :
+                  isActiveManual ? 'bg-[var(--panel-hi)] border border-[var(--line-2)]' :
                   isError ? 'bg-red-900/10 border border-red-900/30' :
                   'opacity-50',
                 ].join(' ')}
@@ -327,7 +327,7 @@ export default function PipelineRunner({
                   isRunningStage ? 'bg-indigo-600' :
                   isDoneStage ? 'bg-emerald-900/60 border border-emerald-700/50' :
                   isError ? 'bg-red-900/50' :
-                  'bg-[#1E2535] border border-[#2A3347]',
+                  'bg-[var(--line)] border border-[var(--line-2)]',
                 ].join(' ')}>
                   {isRunningStage ? (
                     <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin block" />
@@ -336,7 +336,7 @@ export default function PipelineRunner({
                   ) : isError ? (
                     <span className="text-red-400 text-[10px]">✗</span>
                   ) : (
-                    <span className="text-slate-600 text-[10px]">{i + 1}</span>
+                    <span className="text-[var(--tx-4)] text-[10px]">{i + 1}</span>
                   )}
                 </div>
 
@@ -345,16 +345,16 @@ export default function PipelineRunner({
                   <div className="flex items-center justify-between">
                     <span className={[
                       'text-[11px] font-semibold',
-                      isRunningStage ? 'text-indigo-300' :
-                      isDoneStage ? 'text-slate-400' :
-                      isActiveManual ? 'text-slate-300' : 'text-slate-600',
+                      isRunningStage ? 'text-[var(--accent)]' :
+                      isDoneStage ? 'text-[var(--tx-3)]' :
+                      isActiveManual ? 'text-[var(--tx-2)]' : 'text-[var(--tx-4)]',
                     ].join(' ')}>
                       {stage.emoji} {stage.label}
                     </span>
                     {!isRunning && !isDoneStage && (
                       <button
                         onClick={() => onAgentModeChange(stage.mode)}
-                        className="text-[9px] text-slate-600 hover:text-indigo-400 transition-colors px-1"
+                        className="text-[9px] text-[var(--tx-4)] hover:text-[var(--accent)] transition-colors px-1"
                       >
                         전환
                       </button>
@@ -363,20 +363,20 @@ export default function PipelineRunner({
 
                   {/* 실행 중 상태 */}
                   {isRunningStage && runState.toolLabel && (
-                    <p className="text-[10px] text-indigo-400 mt-0.5 truncate">⚡ {runState.toolLabel}</p>
+                    <p className="text-[10px] text-[var(--accent)] mt-0.5 truncate">⚡ {runState.toolLabel}</p>
                   )}
                   {isRunningStage && !runState.toolLabel && (
-                    <p className="text-[10px] text-slate-500 mt-0.5">생성 중...</p>
+                    <p className="text-[10px] text-[var(--tx-3)] mt-0.5">생성 중...</p>
                   )}
 
                   {/* 단계 설명 (대기/활성 시) */}
                   {!isRunningStage && !isDoneStage && (
-                    <p className="text-[10px] text-slate-600 mt-0.5 leading-snug">{stage.description}</p>
+                    <p className="text-[10px] text-[var(--tx-4)] mt-0.5 leading-snug">{stage.description}</p>
                   )}
 
                   {/* 완료 후 미리보기 (첫 50자) */}
                   {runState.status === 'done' && runState.liveContent && (
-                    <p className="text-[10px] text-slate-600 mt-0.5 truncate">
+                    <p className="text-[10px] text-[var(--tx-4)] mt-0.5 truncate">
                       {runState.liveContent.slice(0, 50)}…
                     </p>
                   )}
@@ -385,7 +385,7 @@ export default function PipelineRunner({
 
               {i < STAGES.length - 1 && (
                 <div className="flex justify-start pl-[22px] py-0.5">
-                  <div className="w-px h-2 bg-[#2A3347]" />
+                  <div className="w-px h-2 bg-[var(--line-2)]" />
                 </div>
               )}
             </div>
@@ -395,16 +395,16 @@ export default function PipelineRunner({
 
       {/* 수동 진행 — 다음 단계 추천 */}
       {!isRunning && nextStage && nextStage.mode !== activeAgentMode && pipelineStatus === 'idle' && (
-        <div className="p-2.5 rounded-lg bg-[#0F1520] border border-[#2A3347]">
-          <p className="text-[10px] text-slate-500 mb-1.5">다음 추천 단계</p>
+        <div className="p-2.5 rounded-lg bg-[var(--inset)] border border-[var(--line-2)]">
+          <p className="text-[10px] text-[var(--tx-3)] mb-1.5">다음 추천 단계</p>
           <button
             onClick={() => onAgentModeChange(nextStage.mode)}
             className="w-full flex items-center justify-between px-3 py-2 rounded-md bg-indigo-600/20 border border-indigo-700/40 hover:bg-indigo-600/30 transition-colors"
           >
-            <span className="text-[12px] font-semibold text-indigo-300">
+            <span className="text-[12px] font-semibold text-[var(--accent)]">
               {nextStage.emoji} {nextStage.label}
             </span>
-            <span className="text-indigo-400 text-[14px]">→</span>
+            <span className="text-[var(--accent)] text-[14px]">→</span>
           </button>
         </div>
       )}

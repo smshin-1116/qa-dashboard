@@ -53,7 +53,7 @@ export default function MessageBubble({ message, isStreaming }: MessageBubblePro
       {message.attachments.map((att) => (
         <div
           key={att.id}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#1E2535] border border-[#2A3347] text-[12px] text-slate-400"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[var(--line)] border border-[var(--line-2)] text-[12px] text-[var(--tx-3)]"
         >
           {att.type === 'image' ? '🖼' : att.type === 'code' ? '💻' : '📎'}
           <span className="truncate max-w-[120px]">{att.name}</span>
@@ -66,7 +66,7 @@ export default function MessageBubble({ message, isStreaming }: MessageBubblePro
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tr-md bg-[#262C3D] text-slate-100 text-[14.5px] leading-relaxed">
+        <div className="max-w-[85%] px-4 py-2.5 rounded-2xl rounded-tr-md bg-[var(--line-2)] text-[var(--tx-1)] text-[14.5px] leading-relaxed">
           {attachmentChips}
           <span className="whitespace-pre-wrap break-words">{message.content}</span>
         </div>
@@ -76,7 +76,7 @@ export default function MessageBubble({ message, isStreaming }: MessageBubblePro
 
   // AI 응답: 옅은 배경 카드 안에 본문 전체 폭 표시
   return (
-    <div className="w-full px-5 py-4 rounded-2xl bg-[#141926] border border-[#1E2535] text-slate-200 text-[14.5px] leading-relaxed">
+    <div className="w-full px-5 py-4 rounded-2xl bg-[var(--panel-hi)] border border-[var(--line)] text-[var(--tx-1)] text-[14.5px] leading-relaxed">
       {attachmentChips}
       <div
         ref={containerRef}
