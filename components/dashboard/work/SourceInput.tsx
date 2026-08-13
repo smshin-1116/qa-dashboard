@@ -10,8 +10,12 @@ import { useMemo, useState } from 'react';
  * 하나로 들어오고, 아래로 진행 → 대화(분석) → TC → 작업 종료가 세로로 이어진다.
  * (2026-08-10 사용자 지적으로 하단 ChatInput을 제거하고 이 카드로 통합)
  *
- * ── 무엇을 받나 ───────────────────────────────────────────────────────
- * 티켓·기획서 URL을 줄 단위로 전부 + [텍스트 추가]로 지시·질문 직입.
+ * ── 한 입력창으로 통합 (2026-08-13) ──────────────────────────────────
+ * 예전엔 URLS 칸 + [텍스트 추가]로 여는 TEXT 칸이 따로 있었다. 사용자는
+ * "입력이 두 군데라 헷갈린다"고 지적 → **한 칸**으로 합쳤다. 규칙은 단순하다:
+ *   · `http(s)://`로 시작하는 줄  → 소스 URL (티켓·기획서·PR)
+ *   · 그 밖의 모든 줄            → 자유 텍스트 (지시·질문·본문 붙여넣기)
+ * 줄 단위로 자동 구분하고, 무엇이 감지됐는지 아래 칩으로 즉시 보여준다.
  * 텍스트 직입 경로가 구 `/create-tc` 커맨드를 대체한다 (2026-08-06 확정).
  *
  * ── 라우팅 규칙 ───────────────────────────────────────────────────────
@@ -42,45 +46,48 @@ export default function SourceInput({
   /** 버튼에 표시할 진행 문구 (예: "⓪① Codex 분석 중…") */
   busyLabel?: string;
 }) {
-  const [urls, setUrls] = useState('');
-  const [showText, setShowText] = useState(false);
-  const [text, setText] = useState('');
+  const [raw, setRaw] = useState('');
 
-  /** 줄 단위 분해 + 분류 — 버튼 옆 집계(`티켓 3 · 기획서 2 · …`)에 쓴다 */
+  /** 줄 단위 분해 + URL/텍스트 자동 구분 — 감지 칩과 전송 페이로드에 함께 쓴다 */
   const parsed = useMemo(() => {
-    const lines = urls
+    const lines = raw
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
     const urlLines = lines.filter((l) => URL_RE.test(l));
+    const textLines = lines.filter((l) => !URL_RE.test(l));
     return {
       urls: urlLines,
-      /** URL 칸에 섞인 비-URL 줄 — 버리지 않고 텍스트로 취급한다 */
-      strayText: lines.filter((l) => !URL_RE.test(l)),
+      freeText: textLines.join('\n'),
+      textLineCount: textLines.length,
       tickets: urlLines.filter((l) => JIRA_RE.test(l)).length,
       docs: urlLines.filter((l) => WIKI_RE.test(l)).length,
       prs: urlLines.filter((l) => PR_RE.test(l)).length,
     };
-  }, [urls]);
+  }, [raw]);
 
   const others = parsed.urls.length - parsed.tickets - parsed.docs - parsed.prs;
-  const freeText = [parsed.strayText.join('\n'), showText ? text.trim() : '']
-    .filter(Boolean)
-    .join('\n');
-  const canSubmit = !busy && (parsed.urls.length > 0 || freeText.length > 0);
+  const canSubmit = !busy && (parsed.urls.length > 0 || parsed.freeText.length > 0);
+
+  /** 감지 칩 — 무엇이 잡혔는지 한눈에. 색으로 종류 구분(시맨틱 토큰) */
+  const chips: Array<{ label: string; tone: string }> = [
+    parsed.tickets > 0 && { label: `티켓 ${parsed.tickets}`, tone: 'var(--crit)' },
+    parsed.docs > 0 && { label: `기획서 ${parsed.docs}`, tone: 'var(--info)' },
+    parsed.prs > 0 && { label: `PR ${parsed.prs}`, tone: 'var(--accent)' },
+    others > 0 && { label: `기타 URL ${others}`, tone: 'var(--tx-3)' },
+    parsed.textLineCount > 0 && { label: `텍스트 ${parsed.textLineCount}줄`, tone: 'var(--warn)' },
+  ].filter(Boolean) as Array<{ label: string; tone: string }>;
 
   function submit() {
     if (!canSubmit) return;
 
     // 기획서 1건 단독이면 기존 파이프라인, 그 외는 ⓪①(Codex) → ② 게이트
-    if (parsed.urls.length === 1 && WIKI_RE.test(parsed.urls[0]) && !freeText) {
+    if (parsed.urls.length === 1 && WIKI_RE.test(parsed.urls[0]) && !parsed.freeText) {
       onRunPipeline(parsed.urls[0]);
     } else {
-      onAbsorb(parsed.urls, freeText);
+      onAbsorb(parsed.urls, parsed.freeText);
     }
-    setUrls('');
-    setText('');
-    setShowText(false);
+    setRaw('');
   }
 
   return (
@@ -91,8 +98,8 @@ export default function SourceInput({
             입력 — 소스 여러 개
           </div>
           <div className="text-[11px] text-[var(--tx-3)] mt-0.5">
-            티켓·기획서 URL을 <b className="text-[var(--tx-3)]">줄 단위로 전부</b> 붙여넣는다 · 텍스트
-            직입도 가능
+            URL은 <b className="text-[var(--tx-3)]">줄 단위로</b> 붙여넣고, 지시·질문·본문은 그냥
+            쓰세요 — <b className="text-[var(--tx-3)]">자동으로 구분</b>합니다
           </div>
         </div>
         {parsed.urls.length > 0 && (
@@ -106,90 +113,73 @@ export default function SourceInput({
         )}
       </div>
 
-      {/* URLS 필드 — 시안의 .field 그대로 (좌측 라벨 + 모노 본문) */}
-      <div className="flex items-start gap-2 px-3 py-2.5 rounded-[9px] border border-[var(--line-2)] bg-[var(--inset)]">
-        <span className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-[var(--accent)] pt-1">
-          URLS
-        </span>
+      {/*
+        한 칸 통합 입력. focus-within으로 테두리를 강조해 "여기가 입력"임을 분명히 한다.
+        모노가 아니라 일반 폰트 — URL도 텍스트도 같은 칸에 섞이므로 텍스트 가독성을 택했다.
+      */}
+      <div
+        className="rounded-[10px] border border-[var(--line-2)] bg-[var(--inset)] px-3 py-2.5
+                   transition-colors focus-within:border-[var(--accent)]
+                   focus-within:bg-[color-mix(in_srgb,var(--accent)_5%,var(--inset))]"
+      >
         <textarea
-          value={urls}
-          onChange={(e) => setUrls(e.target.value)}
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
           onKeyDown={(e) => {
-            // Enter는 줄바꿈(여러 URL이 본체다) — 전송은 Cmd/Ctrl+Enter
+            // Enter는 줄바꿈(여러 URL·여러 줄이 본체다) — 전송은 Cmd/Ctrl+Enter
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               submit();
             }
           }}
-          rows={Math.min(8, Math.max(3, parsed.urls.length + parsed.strayText.length + 1))}
+          rows={Math.min(10, Math.max(4, parsed.urls.length + parsed.textLineCount + 2))}
           disabled={busy}
           placeholder={
-            'https://wemeet2025.atlassian.net/browse/RV-1284\nhttps://wemeet2025.atlassian.net/wiki/…/배차취소-기획-v3'
+            'https://wemeet2025.atlassian.net/browse/RV-1284\n' +
+            'https://wemeet2025.atlassian.net/wiki/…/배차취소-기획-v3\n' +
+            '\n' +
+            '취소 사유 노출 케이스도 TC에 포함해줘 (자유 텍스트는 이렇게)'
           }
-          className="flex-1 min-w-0 bg-transparent border-none outline-none resize-none
-                     font-mono text-[11.5px] leading-[1.85] text-[var(--tx-2)]
+          className="w-full min-w-0 bg-transparent border-none outline-none resize-none
+                     text-[12.5px] leading-[1.8] text-[var(--tx-1)]
                      placeholder:text-[var(--tx-4)] disabled:opacity-50"
         />
       </div>
 
-      {/* 텍스트 직입 — /create-tc 커맨드 대체 경로 */}
-      {showText && (
-        <div className="flex items-start gap-2 px-3 py-2.5 mt-2 rounded-[9px] border border-[var(--line-2)] bg-[var(--inset)]">
-          <span className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-[var(--tx-3)] pt-1">
-            TEXT
-          </span>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={4}
-            disabled={busy}
-            autoFocus
-            placeholder="티켓 본문 붙여넣기 · 분석 지시 · 후속 질문 — 자유 텍스트"
-            className="flex-1 min-w-0 bg-transparent border-none outline-none resize-y
-                       text-[12px] leading-[1.7] text-[var(--tx-2)] placeholder:text-[var(--tx-4)] disabled:opacity-50"
-          />
-        </div>
-      )}
-
+      {/* 감지 결과 칩 + 전송 */}
       <div className="flex gap-1.5 mt-2.5 justify-between items-center">
-        <div className="font-mono text-[10px] text-[var(--tx-4)]">
-          {parsed.urls.length > 0 || freeText ? (
-            <>
-              {[
-                parsed.tickets > 0 && `티켓 ${parsed.tickets}`,
-                parsed.docs > 0 && `기획서 ${parsed.docs}`,
-                parsed.prs > 0 && `PR ${parsed.prs}`,
-                others > 0 && `기타 ${others}`,
-                freeText && '텍스트',
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </>
+        <div className="flex flex-wrap items-center gap-1.5 min-h-[20px]">
+          {chips.length > 0 ? (
+            chips.map((c) => (
+              <span
+                key={c.label}
+                className="inline-flex items-center px-[7px] py-[2px] rounded-full border
+                           font-mono text-[9.5px] font-bold whitespace-nowrap"
+                style={{
+                  color: c.tone,
+                  borderColor: `color-mix(in srgb, ${c.tone} 38%, transparent)`,
+                  backgroundColor: `color-mix(in srgb, ${c.tone} 11%, transparent)`,
+                }}
+              >
+                {c.label}
+              </span>
+            ))
           ) : (
-            <>
-              텍스트 직입은 <span className="text-[var(--tx-3)]">/create-tc</span> 커맨드를 대체
-            </>
+            <span className="font-mono text-[10px] text-[var(--tx-4)]">
+              텍스트 직입은 <span className="text-[var(--tx-3)]">/create-tc</span> 커맨드를 대체 ·{' '}
+              <span className="text-[var(--tx-3)]">⌘↵</span> 전송
+            </span>
           )}
         </div>
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => setShowText((v) => !v)}
-            disabled={busy}
-            className="px-2.5 py-1 rounded-[6px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)]
-                       text-[10.5px] font-semibold hover:text-[var(--tx-1)] disabled:opacity-40"
-          >
-            {showText ? '텍스트 닫기' : '텍스트 추가'}
-          </button>
-          <button
-            onClick={submit}
-            disabled={!canSubmit}
-            className="px-2.5 py-1 rounded-[6px] border border-[var(--accent-deep)] bg-[var(--accent-deep)] text-white
-                       text-[10.5px] font-semibold hover:bg-[var(--accent)]
-                       disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {busy ? (busyLabel ?? '진행 중…') : '▶ 일괄 읽기'}
-          </button>
-        </div>
+        <button
+          onClick={submit}
+          disabled={!canSubmit}
+          className="shrink-0 px-2.5 py-1 rounded-[6px] border border-[var(--accent-deep)] bg-[var(--accent-deep)] text-white
+                     text-[10.5px] font-semibold hover:bg-[var(--accent)]
+                     disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {busy ? (busyLabel ?? '진행 중…') : '▶ 일괄 읽기'}
+        </button>
       </div>
     </div>
   );

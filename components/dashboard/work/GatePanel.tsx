@@ -158,7 +158,26 @@ export default function GatePanel({
                 // key에 인덱스를 병용 — codex가 같은 id를 두 번 내도 화면이 안 깨지게 (2026-08-12)
                 <tr key={`${s.id}-${i}`} className="border-b last:border-b-0" style={{ borderColor: C.line }}>
                   <Td mono>
-                    <span style={{ color: s.type === '버그' ? C.crit : C.accent }}>{s.id}</span>
+                    {/*
+                      url이 있으면 실제 링크(Jira/GitHub 새 탭). 없으면 링크처럼 보이지 않게
+                      기본 텍스트색 — 파란색만 있고 클릭이 안 되면 "뭘 누르라는 거지"가 된다
+                      (2026-08-13 사용자 지적).
+                    */}
+                    {s.url ? (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`${s.id} 열기`}
+                        style={{ color: s.type === '버그' ? C.crit : C.accent, textDecoration: 'underline' }}
+                      >
+                        {s.id}
+                      </a>
+                    ) : (
+                      <span style={{ color: C.tx2 }} title="원문 링크 없음 (검색·텍스트 소스)">
+                        {s.id}
+                      </span>
+                    )}
                   </Td>
                   <Td>{s.type}</Td>
                   <Td>{s.summary}</Td>

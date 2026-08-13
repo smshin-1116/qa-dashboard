@@ -175,6 +175,22 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
     reason: string | null;
   }>({ status: 'idle', contract: null, reason: null });
 
+  /**
+   * 지금 Claude가 무슨 단계를 도는지 — 진행 띠(③~⑥·⑦)를 실제로 켜기 위한 신호.
+   * 'design' = 게이트 통과 후 TC 설계·작성, 'run' = TC 자동 수행(Playwright).
+   * handleSend가 시작 시 켜고 끝(성공·에러·중단)에 끈다.
+   */
+  const [streamPhase, setStreamPhase] = useState<'design' | 'run' | null>(null);
+
+  /**
+   * #4 에러 이어가기 — 마지막으로 실패한 액션을 "그 지점부터" 다시 실행하는 thunk.
+   *
+   * 계약·전제(decide)·TC는 이미 서버에 저장돼 있고, Claude 세션은 --resume으로 이어진다.
+   * 그래서 재시도는 "처음부터 재분석"이 아니라 실패한 그 요청만 다시 보낸다 —
+   * 일 중복도 토큰 낭비도 없다 (2026-08-13 사용자 요구).
+   */
+  const [retry, setRetry] = useState<{ label: string; run: () => Promise<unknown> } | null>(null);
+
   // 세션을 열면 저장된 계약을 복원한다 — 게이트가 새로고침에 살아남는 이유
   useEffect(() => {
     const id = activeSession?.id;
@@ -230,6 +246,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
             [urls.join('\n'), text].filter(Boolean).join('\n\n') +
               '\n\n위 소스들을 전부 읽고 요구사항·모순·누락을 분석해줘.',
             [],
+            { phase: 'design' },
           );
         }
       } catch (e) {
@@ -293,7 +310,8 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         '위 전제와 요구만으로 TC를 설계하고, 11컬럼 마크다운 표(TC-ID·대분류·중분류·소분류·검증단계·전제조건·테스트 스텝·기대결과·플랫폼·결과·비고)로 작성해줘.',
       ].join('\n');
 
-      await handleSend(msg, []);
+      // phase 'design' → 진행 띠 ③~⑥ 활성 · 실패 시 이 요청(전제는 이미 저장됨)만 재전송
+      await handleSend(msg, [], { phase: 'design' });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [absorb.contract, activeSession],
@@ -341,7 +359,18 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
     async (
       content: string,
       attachments: Attachment[],
-      opts?: { displayMessage?: string; tcRun?: boolean },
+      opts?: {
+        displayMessage?: string;
+        tcRun?: boolean;
+        /** 진행 띠 표시용 — 이 전송이 어느 단계인지 */
+        phase?: 'design' | 'run';
+        /**
+         * #4 재시도 훅 — 실패 시 이걸 그대로 다시 실행한다. 안 주면 이 handleSend를
+         * 같은 인자로 재실행한다(=Claude --resume). TC 수행처럼 전송 뒤 파싱·저장이
+         * 더 붙는 액션은 그 전체를 감싼 thunk를 넘겨 "이어서"가 온전해지게 한다.
+         */
+        onRetry?: () => Promise<unknown>;
+      },
     ) => {
       let session = activeSession;
       if (!session) {
@@ -356,6 +385,9 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
       setStreamingSessionId(session.id);
       setStreamingContent('');
       setToolStatus('');
+      if (opts?.phase) setStreamPhase(opts.phase);
+      // 새 전송을 시작하면 직전 실패 배너는 치운다 (이 전송이 곧 그 재시도일 수 있다)
+      setRetry(null);
 
       chatAbortRef.current = new AbortController();
 
@@ -449,11 +481,17 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           setStreamingSessionId(null);
           setStreamingContent('');
           setToolStatus('');
+          setStreamPhase(null);
         });
         if (full.trim()) {
           await addMessage({ role: 'assistant', content: full });
         } else {
-          addToast('error', '응답을 받지 못했습니다. 다시 시도해주세요.');
+          // 빈 응답도 재개 대상 — 저장된 세션에서 이어서 다시 시도할 수 있게 배너를 남긴다
+          addToast('error', '응답을 받지 못했습니다.');
+          setRetry({
+            label: '이어서 다시 시도',
+            run: opts?.onRetry ?? (() => handleSend(content, attachments, opts)),
+          });
         }
         // 자동 수행 등 호출부가 응답 본문을 파싱할 수 있게 돌려준다
         return full;
@@ -465,6 +503,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
             setStreamingSessionId(null);
             setStreamingContent('');
             setToolStatus('');
+            setStreamPhase(null);
           });
           if (full.trim()) {
             await addMessage({ role: 'assistant', content: full });
@@ -477,9 +516,22 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           setStreamingSessionId(null);
           setStreamingContent('');
           setToolStatus('');
+          setStreamPhase(null);
         });
-        await addMessage({ role: 'assistant', content: `오류가 발생했습니다: ${msg}` });
+        // 부분 응답이 있으면 버리지 않고 남긴다 — 재시도 시 --resume이 이어받는다
+        if (full.trim()) {
+          await addMessage({ role: 'assistant', content: full });
+        }
+        await addMessage({
+          role: 'assistant',
+          content: `오류가 발생했습니다: ${msg}\n\n> 계약·전제·TC는 저장돼 있습니다. 아래 **[${'이어서 다시 시도'}]** 로 이 지점부터 다시 진행하세요 (처음부터 재분석 아님).`,
+        });
         addToast('error', msg);
+        // #4 — 실패한 액션을 그대로 재실행할 수 있게 보관 (onRetry 있으면 그걸, 없으면 이 전송 자체)
+        setRetry({
+          label: '이어서 다시 시도',
+          run: opts?.onRetry ?? (() => handleSend(content, attachments, opts)),
+        });
         return '';
       }
     },
@@ -542,6 +594,9 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         (await handleSend(prompt, [], {
           displayMessage: `▶ TC ${tcs.length}건 stage 자동 수행 요청 (${tcs.map((t) => t.localId).join(', ')})`,
           tcRun: true,
+          phase: 'run',
+          // 재시도는 수행+파싱+기입 전체를 다시 — 부분 결과만 남고 표에 안 들어가는 일 방지
+          onRetry: () => handleRunTc(tcs),
         })) ?? '';
 
       // 응답에서 | TC-ID | 결과 | 사유 | 표를 파싱
@@ -574,7 +629,6 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           (body.unmatched.length ? ` · 미매칭 ${body.unmatched.join(', ')}` : ''),
       );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeSession, handleSend, addToast],
   );
 
@@ -591,6 +645,97 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
       addToast('warning', '다운로드할 TC 데이터가 없습니다. TC를 먼저 생성해주세요.');
     }
   }, [activeSession, addToast]);
+
+  /*
+    진행 띠(⓪~⑦)의 실제 상태 — 고정 라벨이 아니라 지금 도는 단계를 켠다 (2026-08-13).
+      · ⓪① 흡수·교차분석 → absorb.status
+      · ②  확인          → 전제(decisions) 고정 여부
+      · ③~⑥ 설계·작성    → design 스트림 중이거나(streamPhase) 파이프라인 실행 중이면 run,
+                            TC가 한 건이라도 작성돼 있으면 done
+      · ⑦  수행          → run 스트림 중이면 run, 결과가 하나라도 있으면 done
+  */
+  const tcDrafted = activeSession ? collectTcRawRows(activeSession).length > 0 : false;
+  const designRunning = streamPhase === 'design' || pipelineRunning;
+  const runRunning = streamPhase === 'run';
+  const bandStages: Array<{
+    label: string;
+    status: 'wait' | 'run' | 'done';
+    tone: string;
+    title: string;
+    arrowBefore?: boolean;
+  }> = [
+    {
+      label: '⓪ 📥 개별 흡수',
+      status: absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait',
+      tone: '#10A37F',
+      title: 'Codex 세션 1개가 담당 — 입력 카드에서 시작',
+    },
+    {
+      label: '① 🔀 교차 분석',
+      status: absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait',
+      tone: '#10A37F',
+      title: 'Codex — 소스 간 모순·중복·누락 대조',
+    },
+    {
+      label: '② ✋ 확인',
+      status: (absorb.contract?.decisions.length ?? 0) > 0 ? 'done' : absorb.contract ? 'run' : 'wait',
+      tone: 'var(--info)',
+      title: '사람 — 확인 게이트에서 전제 확정',
+      arrowBefore: true,
+    },
+    {
+      label: '③~⑥ ✍️ 설계·작성',
+      status: designRunning ? 'run' : tcDrafted ? 'done' : 'wait',
+      tone: 'var(--accent)',
+      title: 'Claude — TC 설계·작성·리뷰·수정 (아래 카드)',
+      arrowBefore: true,
+    },
+    {
+      label: '⑦ ✅ 수행',
+      status: runRunning ? 'run' : tcAvailable ? 'done' : 'wait',
+      tone: 'var(--accent)',
+      title: 'Claude + Playwright — stage 자동 수행 (TC 카드)',
+      arrowBefore: true,
+    },
+  ];
+
+  /*
+    #4 재시도 배너 — 에러로 멈췄을 때 "처음부터"가 아니라 저장된 지점에서 이어가게 한다.
+    두 레이아웃(작업 화면·일반 채팅)에서 같은 걸 쓴다.
+  */
+  const retryBanner = retry ? (
+    <div
+      className="rounded-[13px] border p-3 flex items-center gap-3 flex-wrap"
+      style={{
+        borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)',
+        backgroundColor: 'color-mix(in srgb, var(--warn) 10%, transparent)',
+      }}
+    >
+      <span className="text-[16px] leading-none">⚠️</span>
+      <div className="flex-1 min-w-[200px]">
+        <div className="text-[12.5px] font-semibold text-[var(--tx-1)]">오류로 중단됨</div>
+        <div className="text-[11px] text-[var(--tx-3)] mt-0.5">
+          계약·전제·TC는 저장돼 있습니다. <b className="text-[var(--tx-2)]">처음부터 재분석하지 않고</b> 이
+          지점부터 이어서 진행합니다.
+        </div>
+      </div>
+      <button
+        onClick={() => void retry.run()}
+        disabled={isStreaming || pipelineRunning || absorb.status === 'running'}
+        className="shrink-0 px-3 py-1.5 rounded-[7px] border border-[var(--warn)] text-[11px] font-semibold
+                   text-[var(--warn)] hover:bg-[color-mix(in_srgb,var(--warn)_16%,transparent)]
+                   disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        ▶ {retry.label}
+      </button>
+      <button
+        onClick={() => setRetry(null)}
+        className="shrink-0 px-2 py-1.5 rounded-[7px] text-[11px] text-[var(--tx-4)] hover:text-[var(--tx-2)]"
+      >
+        닫기
+      </button>
+    </div>
+  ) : null;
 
   // 스토어가 아직 이 워크스페이스로 전환되기 전이면 로딩 (라우트 전환 직후 깜빡임 방지)
   if (!isLoaded || activeKind !== workspaceKey) {
@@ -642,6 +787,9 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                     busyLabel={absorb.status === 'running' ? '⓪① Codex 분석 중…' : undefined}
                   />
 
+                  {/* #4 에러 이어가기 배너 — 저장된 지점에서 재시도 */}
+                  {retryBanner}
+
                   {/* ── 진행 · 모델 분담 ─────────────────────────────── */}
                   <div className="rounded-[13px] border border-[var(--line)] bg-[var(--panel)] p-3.5">
                     <button
@@ -653,46 +801,41 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                     </button>
                     {/*
                       시안의 owner-band — ⓪① Codex · ② 사람 · ③~⑦ Claude.
-                      ⓪①②는 실제 진행 상태를 따라간다 (2026-08-11 구현):
-                      흡수 중 → 진행색 / 계약 있음 → 완료 / 전제 고정 → ② 완료.
+                      이제 다섯 단계 전부 실제 진행을 따라간다 (2026-08-13):
+                      run(지금 도는 중)=앰버 펄스 · done(끝남)=담당색 · wait=회색.
+                      "codex 분석 중"으로 버튼만 바뀌고 띠는 고정이던 문제를 해소.
                     */}
                     <div className="flex items-center gap-1 flex-wrap mt-2 mb-2.5 font-mono text-[10px]">
-                      {(
-                        [
-                          ['⓪ 📥 개별 흡수', absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait'],
-                          ['① 🔀 교차 분석', absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait'],
-                          ['② ✋ 확인', (absorb.contract?.decisions.length ?? 0) > 0 ? 'done' : absorb.contract ? 'run' : 'wait'],
-                        ] as const
-                      ).map(([label, st]) => (
-                        <span
-                          key={label}
-                          className={[
-                            'px-2 py-0.5 rounded border',
-                            st === 'done'
-                              ? 'border-[#10A37F66] bg-[#10A37F1c] text-[#10A37F]'
-                              : st === 'run'
-                                ? 'border-[var(--warn)66] bg-[var(--warn)1c] text-[var(--warn)]'
-                                : 'border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-4)]',
-                          ].join(' ')}
-                          title={
-                            st === 'wait'
-                              ? 'Codex 세션 1개가 담당 — 입력 카드에서 시작'
-                              : st === 'run'
-                                ? '진행 중'
-                                : '완료'
-                          }
-                        >
-                          {label}
-                        </span>
-                      ))}
-                      <span className="text-[var(--tx-4)]">→</span>
-                      <span className="px-2 py-0.5 rounded border border-[var(--accent-deep)66] bg-[var(--accent-bg)] text-[var(--accent)]">
-                        ③~⑥ 설계·작성·리뷰·수정 (아래)
-                      </span>
-                      <span className="text-[var(--tx-4)]">→</span>
-                      <span className="px-2 py-0.5 rounded border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-3)]">
-                        ⑦ ✅ 수행 (TC 카드)
-                      </span>
+                      {bandStages.map((s) => {
+                        // run은 담당색 무관 앰버(진행) · wait은 회색 · done은 담당색
+                        const color =
+                          s.status === 'run' ? 'var(--warn)' : s.status === 'wait' ? 'var(--tx-4)' : s.tone;
+                        return (
+                          <span key={s.label} className="contents">
+                            {s.arrowBefore && <span className="text-[var(--tx-4)]">→</span>}
+                            <span
+                              className={
+                                'px-2 py-0.5 rounded border inline-flex items-center gap-1 ' +
+                                (s.status === 'run' ? 'animate-pulse' : '')
+                              }
+                              style={{
+                                color,
+                                borderColor: `color-mix(in srgb, ${color} 42%, transparent)`,
+                                backgroundColor: `color-mix(in srgb, ${color} ${s.status === 'wait' ? '8' : '16'}%, transparent)`,
+                              }}
+                              title={s.title}
+                            >
+                              {s.status === 'run' && (
+                                <span
+                                  className="w-1 h-1 rounded-full"
+                                  style={{ backgroundColor: 'var(--warn)' }}
+                                />
+                              )}
+                              {s.label}
+                            </span>
+                          </span>
+                        );
+                      })}
                     </div>
                     {pipelineOpen && (
                       <PipelineRunner
@@ -764,6 +907,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                   hasTcResult={tcAvailable}
                   onDownloadXlsx={handleDownloadXlsx}
                 />
+                {retryBanner && <div className="px-3.5 pb-2">{retryBanner}</div>}
                 <ChatInput
                   key={activeSession?.id ?? 'none'}
                   activeModel={activeModel}
