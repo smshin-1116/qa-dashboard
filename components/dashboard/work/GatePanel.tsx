@@ -11,9 +11,11 @@ import type { Contract, ContractDecision } from '@/lib/workspace/contract';
  * 모순 2건을 모르고 TC를 쓰면 TC 전체가 틀린 전제 위에 올라간다.
  *
  * ── 질문의 재료 ───────────────────────────────────────────────────────
- * conflicts → [필수] 어느 쪽을 따를지  ·  gaps → [선택] 범위에 넣을지
- * 필수가 다 답해져야 [답변 반영 → ③ 설계 진행]이 열린다.
- * [모순 무시하고 진행]은 항상 열려 있다 — 판단은 사람 몫이다.
+ * conflicts(모순) → 어느 소스를 따를지  ·  gaps(누락) → 범위에 넣을지(넣기/빼기)
+ * 둘 다 **선택**이다 — 답을 강제하지 않는다 (2026-08-13 사용자 요청으로 필수→선택).
+ * 답한 것만 전제로 고정하고, 답 안 한 모순은 버리지 않고 "미결"로 표시해 Claude가
+ * 미해결 상태를 알게 한다(게이트 안전망 유지). [답변 반영 → ③ 설계 진행]은 항상 열려
+ * 있다 — 판단은 사람 몫이다.
  */
 
 const C = {
@@ -59,14 +61,14 @@ export default function GatePanel({
     if (!contract) return [];
     const qs: Array<{
       key: string;
-      required: boolean;
+      kind: 'conflict' | 'gap';
       text: string;
       options: string[];
     }> = [];
     for (const [i, cf] of contract.conflicts.entries()) {
       qs.push({
         key: `conflict-${i}`,
-        required: true,
+        kind: 'conflict',
         text: cf.topic,
         // 어느 소스를 따를지 — 소스 이름이 곧 선택지다
         options: cf.sides.map((s) => s.source),
@@ -75,7 +77,7 @@ export default function GatePanel({
     for (const [i, g] of contract.gaps.entries()) {
       qs.push({
         key: `gap-${i}`,
-        required: false,
+        kind: 'gap',
         text: `"${g.text}"을(를) 이번 범위에 넣을까요?`,
         options: ['넣기', '빼기'],
       });
@@ -83,7 +85,7 @@ export default function GatePanel({
     return qs;
   }, [contract]);
 
-  const requiredLeft = questions.filter((q) => q.required && !answers[q.key]).length;
+  const answeredCount = questions.filter((q) => answers[q.key]).length;
 
   if (!contract) {
     // 폴백 — 시안: "⓪①을 Claude가 처리하고 '분산 실패 · Claude 단독' 배지 표시 · 작업은 멈추지 않는다"
@@ -110,14 +112,22 @@ export default function GatePanel({
     return null;
   }
 
-  function buildDecisions(ignore: boolean): ContractDecision[] {
+  /**
+   * 진행 시 전제로 굳힐 decisions를 만든다. 강제가 없으므로:
+   *   · 답한 질문(모순/누락) → 그 답을 전제로
+   *   · 답 안 한 모순 → 버리지 않고 "미결"로 남겨 Claude가 미해결임을 알게 한다(안전망)
+   *   · 답 안 한 누락 → 전제로 넣지 않는다 (기본 = 범위 제외)
+   */
+  function buildDecisions(): ContractDecision[] {
     return questions
-      .filter((q) => answers[q.key] || (ignore && q.required))
-      .map((q) => ({
-        question: q.text,
-        answer: answers[q.key] ?? '미결 — 모순 무시하고 진행',
-        decided_by: 'human' as const,
-      }));
+      .map((q): ContractDecision | null => {
+        const a = answers[q.key];
+        if (a) return { question: q.text, answer: a, decided_by: 'human' };
+        if (q.kind === 'conflict')
+          return { question: q.text, answer: '미결 — 모순 미해결(판단 보류)', decided_by: 'human' };
+        return null;
+      })
+      .filter((d): d is ContractDecision => d !== null);
   }
 
   return (
@@ -278,10 +288,8 @@ export default function GatePanel({
           </div>
           {decided ? (
             <Pill fg={C.ok}>전제 {contract.decisions.length}건 고정</Pill>
-          ) : requiredLeft > 0 ? (
-            <Pill fg={C.warn}>응답 대기 {requiredLeft}</Pill>
           ) : (
-            <Pill fg={C.ok}>진행 가능</Pill>
+            <Pill fg={C.info}>답변 {answeredCount}/{questions.length} · 선택</Pill>
           )}
         </div>
 
@@ -311,7 +319,10 @@ export default function GatePanel({
             <div className="flex flex-col gap-1.5">
               {questions.map((q) => (
                 <div key={q.key} className="flex items-center gap-2.5">
-                  <Pill fg={q.required ? C.crit : C.warn}>{q.required ? '필수' : '선택'}</Pill>
+                  {/* 배지는 "필수/선택"이 아니라 종류(모순/누락)를 나타낸다 — 둘 다 선택이다 */}
+                  <Pill fg={q.kind === 'conflict' ? C.crit : C.warn}>
+                    {q.kind === 'conflict' ? '모순' : '누락'}
+                  </Pill>
                   <span className="flex-1 text-[12px]" style={{ color: C.tx2 }}>
                     {q.text}
                   </span>
@@ -341,23 +352,19 @@ export default function GatePanel({
             </div>
 
             <div className="flex gap-1.5 mt-3 justify-end">
+              {/*
+                필수 강제를 없앴으므로 진행 버튼은 항상 열려 있다. 답을 안 해도 진행 가능하며,
+                답 안 한 모순은 buildDecisions가 "미결"로 넘긴다. (구 [모순 무시하고 진행]은
+                이제 이 버튼과 동작이 같아져 제거)
+              */}
               <button
-                onClick={() => onProceed(buildDecisions(true))}
+                onClick={() => onProceed(buildDecisions())}
                 disabled={busy}
-                className="px-2.5 py-1 rounded-[6px] border text-[10.5px] font-semibold disabled:opacity-40"
-                style={{ background: C.inset, borderColor: C.line2, color: C.tx2 }}
-              >
-                모순 무시하고 진행
-              </button>
-              <button
-                onClick={() => onProceed(buildDecisions(false))}
-                disabled={busy || requiredLeft > 0}
-                title={requiredLeft > 0 ? `필수 질문 ${requiredLeft}건이 남았습니다` : undefined}
                 className="px-2.5 py-1 rounded-[6px] border text-[10.5px] font-semibold text-white
                            disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ background: C.accentDeep, borderColor: C.accentDeep }}
               >
-                답변 반영 → ③ 설계 진행
+                {answeredCount > 0 ? '답변 반영 → ③ 설계 진행' : '답변 없이 → ③ 설계 진행'}
               </button>
             </div>
 
@@ -365,8 +372,9 @@ export default function GatePanel({
               className="mt-2.5 pl-2.5 text-[11.5px] border-l-2"
               style={{ borderColor: C.accentDeep, color: C.tx3 }}
             >
-              여기서 답한 내용이 <b style={{ color: C.tx2 }}>전제로 고정되어</b> 이후 TC 전 단계에
-              적용된다. 산출물에는 &quot;이 전제로 작성됨&quot;이 명시된다.
+              모순·누락 답변은 모두 <b style={{ color: C.tx2 }}>선택</b>이다 — 답한 것만{' '}
+              <b style={{ color: C.tx2 }}>전제로 고정</b>되어 TC 설계에 반영되고, 답 안 한 모순은
+              &quot;미결&quot;로 Claude에 전달된다. 산출물에는 &quot;이 전제로 작성됨&quot;이 명시된다.
             </div>
           </>
         )}
