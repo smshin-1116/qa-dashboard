@@ -550,19 +550,18 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
   );
 
   /**
-   * TC 자동 수행 — Playwright로 stage에서 실제 수행하고 결과를 tc 테이블에 기입한다.
+   * TC 자동 수행 — 선택 TC 전부를 **한 세션**에서 수행하고 결과를 tc 테이블에 기입한다.
    *
-   * ── 왜 소배치·세션 분리인가 (2026-08-13) ─────────────────────────────
-   * 예전엔 선택 TC 전부를 한 프롬프트로 묶어 **설계 세션을 --resume**해 돌렸다. 그러면
-   * ① 설계 대화(요약·게이트·11컬럼 표) 전체를 상속하고 ② 매 동작의 페이지 스냅샷이
-   * 히스토리에 쌓여, 매 턴 그 전부를 다시 실어 컨텍스트가 O(N²)로 폭증했다 — TC 한두
-   * 건 지나면 벽에 부딪혔다("한 건밖에 못 함", 사용자 실측).
-   *
-   * 그래서 3건씩 소배치로 끊고, **각 배치를 새 세션(freshSession)** 으로 돌린다:
-   *   · 설계 대화를 상속하지 않는다 → 시작 컨텍스트가 가볍다
-   *   · 이전 배치의 스냅샷을 안 물려받는다 → 누적이 배치 안(≤3건)으로 고정된다 (N²→N)
-   *   · 로그인은 영속 Playwright 프로필에 있어 새 세션도 로그인 상태 유지(재로그인 0)
-   * 판단 근거(기능 맥락)는 계약 요약으로 배치마다 주입해 품질을 유지한다.
+   * ── 왜 전체 1세션인가 (2026-08-13 재설계) ────────────────────────────
+   * 처음엔 컨텍스트 폭증을 막으려 3건 소배치로 쪼갰는데, 진짜 폭증 원인은
+   * roouty-spec 명세 로딩이었고 그건 이미 제거했다. 배치 쪼개기는 배치마다 브라우저
+   * 재기동·재접속(워밍업)을 반복하고, **같은 화면을 보는 연관 TC의 네비게이션 공유**를
+   * 잃어 오히려 느리고 비쌌다. 그래서 전부 한 세션(freshSession)에 넣는다:
+   *   · 워밍업 1회 · 같은 화면 TC는 한 번 이동해 함께 확인 → 빠르고 저렴
+   *   · 설계 대화는 여전히 상속 안 함(freshSession) · 로그인은 영속 프로필로 유지
+   *   · 판정 방식은 백엔드(repo·stage API read-only) 우선, 화면 필요 시만 Playwright
+   *     — 이 하이브리드 지시는 서버의 TC_RUN_PROMPT에 있다.
+   * 판단 근거(기능 맥락)는 계약 요약(digest)으로 주입해 품질을 유지한다.
    *
    * ⚠️ 실제 stage 수행이라 토큰·시간이 크다. 사람이 버튼을 눌러야만 돈다.
    */
@@ -579,7 +578,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
     ) => {
       if (!activeSession || tcs.length === 0) return;
 
-      // 계약 요약 — 판단 근거를 배치마다 주입(원문 재조회 없이). PR·코드 소스는 수행 판정에
+      // 계약 요약 — 판단 근거를 주입(원문 재조회 없이). PR·코드 소스는 수행 판정에
       // 직접 안 쓰므로 제외하고 문서형 소스 요약 + 핵심 요구만 압축한다.
       const c = absorb.contract;
       const digest = c
@@ -595,14 +594,27 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           ].join('\n')
         : '';
 
-      const buildPrompt = (
-        batch: typeof tcs,
-        idx: number,
-        total: number,
-      ) =>
+      // 결과 표 파서 — 한 세션 응답에서 | TC-ID | 결과 | 사유 | 행만 뽑는다
+      const RESULTS = new Set(['Pass', 'Fail', 'Blocked', 'Not Test']);
+      const parseResults = (full: string) => {
+        const out: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }> = [];
+        for (const line of full.split('\n')) {
+          if (!line.trim().startsWith('|')) continue;
+          const cells = line.split('|').map((x) => x.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
+          if (cells.length < 2) continue;
+          const [localId, result, note] = cells;
+          if (!/^TC-\d+/i.test(localId) || !RESULTS.has(result)) continue;
+          out.push({ localId, result: result as 'Pass' | 'Fail' | 'Blocked' | 'Not Test', note: note || undefined });
+        }
+        return out;
+      };
+
+      const buildPrompt = (part: typeof tcs) =>
         [
-          `[TC 자동 수행 — stage 환경 (tms-stage.roouty.io) · 배치 ${idx + 1}/${total}]`,
-          '아래 TC를 Playwright로 stage에서 **실제 수행**하고 결과를 판정해줘.',
+          '[TC 자동 수행 — stage 환경 (tms-stage.roouty.io / API: tms-api-stage.roouty.io)]',
+          '아래 TC 전부를 수행하고 결과를 판정해줘. 판정 방식은 시스템 지시를 따라라',
+          '(백엔드/구현으로 되는 건 repo·stage API read-only로, 화면이 꼭 필요한 것만 Playwright).',
+          '같은 화면·전제를 공유하는 TC는 한 번만 이동해 함께 확인해 중복을 줄여라.',
           '',
           digest,
           '⚠️ 응답 **맨 끝**에 반드시 아래 형식의 표만 출력 (자동 기입용 — 결과는 Pass/Fail/Blocked/Not Test 중 하나):',
@@ -610,7 +622,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           '| TC-01 | Pass | ... |',
           '',
           '[수행할 TC]',
-          ...batch.map((t) =>
+          ...part.map((t) =>
             [
               `${t.localId}`,
               t.subCategory && `  중분류: ${t.subCategory}`,
@@ -626,68 +638,74 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           .filter(Boolean)
           .join('\n');
 
-      // 결과 표 파서 — 한 배치 응답에서 | TC-ID | 결과 | 사유 | 행만 뽑는다
-      const RESULTS = new Set(['Pass', 'Fail', 'Blocked', 'Not Test']);
-      const parseResults = (full: string) => {
-        const out: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }> = [];
-        for (const line of full.split('\n')) {
-          if (!line.trim().startsWith('|')) continue;
-          const cells = line.split('|').map((x) => x.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
-          if (cells.length < 2) continue;
-          const [localId, result, note] = cells;
-          if (!/^TC-\d+/i.test(localId) || !RESULTS.has(result)) continue;
-          out.push({ localId, result: result as 'Pass' | 'Fail' | 'Blocked' | 'Not Test', note: note || undefined });
-        }
-        return out;
-      };
-
-      // 3건씩 소배치로 분할
-      const BATCH = 3;
-      const batches: Array<typeof tcs> = [];
-      for (let i = 0; i < tcs.length; i += BATCH) batches.push(tcs.slice(i, i + BATCH));
-
-      let totalApplied = 0;
-      const allUnmatched: string[] = [];
-
-      for (let bi = 0; bi < batches.length; bi++) {
-        const batch = batches[bi];
-        const ids = batch.map((t) => t.localId).join(', ');
-
+      // 한 세션 실행 → 파싱 → 기입. retryTcs = 실패 시 재시도 배너가 다시 돌릴 TC 목록.
+      const runOne = async (part: typeof tcs, label: string, retryTcs: typeof tcs) => {
         const full =
-          (await handleSend(buildPrompt(batch, bi, batches.length), [], {
-            displayMessage: `▶ [배치 ${bi + 1}/${batches.length}] TC ${batch.length}건 stage 수행 (${ids})`,
+          (await handleSend(buildPrompt(part), [], {
+            displayMessage: label,
             tcRun: true,
             phase: 'run',
-            freshSession: true, // 배치마다 새 세션 — 설계 대화·이전 배치 스냅샷 상속 안 함
-            // 실패 시 이 배치부터 이어서 재시도 (완료된 앞 배치는 이미 기입됨)
-            onRetry: () => handleRunTc(tcs.slice(bi * BATCH)),
+            freshSession: true, // 새 세션 — 설계 대화 상속 안 함
+            onRetry: () => handleRunTc(retryTcs),
           })) ?? '';
-
-        // 빈 응답 = 에러/중단 → handleSend가 재시도 배너를 세워둠. 남은 배치는 멈춘다.
-        if (!full.trim()) return;
-
+        // 빈 응답 = 에러/중단 → handleSend가 재시도 배너를 세워둔다
+        if (!full.trim()) return { ok: false as const, applied: 0, unmatched: [] as string[] };
         const parsed = parseResults(full);
         if (parsed.length === 0) {
-          addToast('warning', `[배치 ${bi + 1}] 결과 표를 못 읽었습니다. 대화에서 확인 후 수동 기입해주세요.`);
-          continue;
+          addToast('warning', '수행은 됐지만 결과 표를 못 읽었습니다. 대화에서 확인 후 수동 기입해주세요.');
+          return { ok: true as const, applied: 0, unmatched: [] as string[] };
         }
-
         const res = await fetch('/api/workspace/tc', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'auto-results', sessionId: activeSession.id, results: parsed }),
         });
         const body = (await res.json()) as { applied: number; unmatched: string[] };
-        totalApplied += body.applied;
-        allUnmatched.push(...body.unmatched);
-        setTcSavedAt(Date.now()); // 배치마다 즉시 표 새로고침(점진적 반영)
+        setTcSavedAt(Date.now()); // 세션(청크)마다 즉시 표 새로고침
+        return { ok: true as const, applied: body.applied, unmatched: body.unmatched };
+      };
+
+      const finalToast = (applied: number, unmatched: string[]) =>
+        addToast(
+          unmatched.length ? 'warning' : 'success',
+          `${applied}건 자동 기입` + (unmatched.length ? ` · 미매칭 ${unmatched.join(', ')}` : ''),
+        );
+
+      /*
+        안전장치(예방형) — 세션 하나에 너무 많은 TC가 쌓여 컨텍스트가 과부하로 "뻑나기 전에"
+        카운트 기준으로 미리 끊는다. 세션당 최대 CHUNK건이라 절대 그 지점에 닿지 않는다.
+        작은/중간 세트는 통째로 1세션(빠름 — 워밍업·네비게이션 공유). 큰 세트만 청크로
+        끊고 청크마다 저장 → 중간 실패해도 앞 청크 결과는 남고 그 청크부터 재시도된다.
+      */
+      const CHUNK = 10;
+
+      if (tcs.length <= CHUNK) {
+        const r = await runOne(
+          tcs,
+          `▶ TC ${tcs.length}건 stage 자동 수행 (${tcs.map((t) => t.localId).join(', ')})`,
+          tcs,
+        );
+        if (!r.ok) return;
+        finalToast(r.applied, r.unmatched);
+        return;
       }
 
-      addToast(
-        allUnmatched.length ? 'warning' : 'success',
-        `총 ${totalApplied}건 자동 기입` +
-          (allUnmatched.length ? ` · 미매칭 ${allUnmatched.join(', ')}` : ''),
-      );
+      const chunks: Array<typeof tcs> = [];
+      for (let i = 0; i < tcs.length; i += CHUNK) chunks.push(tcs.slice(i, i + CHUNK));
+      let totalApplied = 0;
+      const allUnmatched: string[] = [];
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const part = chunks[ci];
+        const r = await runOne(
+          part,
+          `▶ [${ci + 1}/${chunks.length}] TC ${part.length}건 stage 수행 (${part.map((t) => t.localId).join(', ')})`,
+          tcs.slice(ci * CHUNK), // 실패 시 이 청크부터 재시도(앞 청크는 이미 저장됨)
+        );
+        if (!r.ok) return; // handleSend가 재시도 배너를 세워둠 — 남은 청크는 멈춘다
+        totalApplied += r.applied;
+        allUnmatched.push(...r.unmatched);
+      }
+      finalToast(totalApplied, allUnmatched);
     },
     [activeSession, absorb.contract, handleSend, addToast],
   );
