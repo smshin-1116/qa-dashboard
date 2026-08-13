@@ -302,6 +302,43 @@ ${BASE_CONTEXT}
 \`\`\``,
 };
 
+/**
+ * TC 수행 전용 시스템 프롬프트 (슬림).
+ *
+ * 수행은 TC를 "작성"하는 게 아니라 **설계된 TC를 stage에서 실제로 돌려보고 판정**하는 일이다.
+ * 그래서 general 모드의 TC 작성 규칙·11컬럼 포맷·EVAL 기준은 전부 뺐다.
+ *
+ * ⚠️ 명세 문서(roouty-spec)를 로드하지 않는다 (2026-08-13, 사용자 지적으로 수정).
+ * roouty-spec은 **설계/분석 단계의 참고 문서**다. 수행에서 이를 로드하면 배차계획·모니터링
+ * 등 큰 명세 문서(수만 자)가 컨텍스트에 실리고 20+ 턴 동안 cacheRead로 재실려 토큰을
+ * 폭증시킨다(실측: 수행 비용의 절반~대부분이 명세 읽기였음). 수행 판정 기준은 호출부가
+ * user 메시지에 주입하는 [기능 맥락] 요약 + 각 TC의 기대결과로 충분하다. 구현 확인이
+ * 필요하면 명세가 아니라 프론트/백엔드 repo를 read-only로 참고한다.
+ */
+const TC_RUN_PROMPT = `당신은 QA 수행 전문 에이전트입니다. stage 환경(tms-stage.roouty.io)에서 Playwright로 **설계된 TC를 실제 화면에서 수행**하고 Pass/Fail을 판정합니다.
+
+## 판정 기준 (이것만으로 판정 — 명세 문서 로드 금지)
+- 판정 기준은 사용자 메시지의 [기능 맥락] 요약과 **각 TC의 기대결과**입니다. 이걸로 충분합니다.
+- ⚠️ \`roouty-spec\` 등 **명세 문서 스킬을 로드하지 마세요.** 명세는 TC 설계용 참고 문서이며, 수행 단계에서는 불필요하고 큰 문서가 컨텍스트에 실려 토큰을 크게 낭비합니다.
+- 티켓·기획 원문도 다시 조회하지 마세요.
+
+## 수행 방법
+- Playwright로 stage 화면을 실제 로딩해 TC 스텝을 수행하고 기대결과와 대조합니다.
+- 구현 동작이 애매해 확인이 필요할 때만 **프론트/백엔드 repo를 read-only로** 참고하세요 (gh pr view/diff, gh api, search_code 등). 파일 변경·clone·push는 금지입니다.
+
+## 수행 원칙 (토큰 절약)
+- 페이지 상태 확인은 **판정에 필요한 시점에만** 스냅샷을 확보하세요. 동작마다 전체 스냅샷을 남발하지 마세요.
+- 기대결과 검증에 직접 관련된 요소만 확인하고, 불필요한 탐색·스크린샷을 삼가세요.
+- 실행 불가(데이터 미비·리스크)면 무리하게 수행하지 말고 **Blocked + 사유**로 판정하세요.
+
+## 결과 판정
+- 각 TC를 Pass / Fail / Blocked / Not Test 중 하나로 판정합니다.
+- 응답 **맨 끝**에 반드시 아래 형식의 표만 출력하세요 (자동 기입용):
+| TC-ID | 결과 | 사유 |
+| TC-01 | Pass | ... |
+
+모든 응답은 한국어로 작성합니다.`;
+
 function buildSystemPrompt(mode: AgentMode): string {
   return MODE_PROMPTS[mode] ?? MODE_PROMPTS.general;
 }
@@ -367,7 +404,8 @@ export async function POST(req: NextRequest) {
     '--verbose',                       // stream-json 에 필수
     '--include-partial-messages',
     '--dangerously-skip-permissions',  // 비대화형 모드에서 tool 자동 승인
-    '--append-system-prompt', buildSystemPrompt(agentMode),
+    // 수행은 슬림 프롬프트 · 그 외는 모드별 프롬프트
+    '--append-system-prompt', body.tcRun ? TC_RUN_PROMPT : buildSystemPrompt(agentMode),
   ];
 
   if (body.claudeSessionId) {
@@ -492,9 +530,19 @@ export async function POST(req: NextRequest) {
               }
             }
 
-            // 최종 결과에서 session_id 재확인
-            if (event.type === 'result' && typeof event.session_id === 'string') {
-              claudeSessionId = event.session_id;
+            // 최종 결과에서 session_id 재확인 + 토큰 usage 로깅 (A/B 측정용)
+            if (event.type === 'result') {
+              if (typeof event.session_id === 'string') claudeSessionId = event.session_id;
+              // stream-json result 이벤트는 usage·비용을 담는다 — 서버 로그로 실측치 노출
+              console.error(
+                '[claude usage]',
+                JSON.stringify({
+                  tcRun: body.tcRun ?? false,
+                  usage: event.usage ?? null,
+                  cost: (event as { total_cost_usd?: number }).total_cost_usd ?? null,
+                  turns: (event as { num_turns?: number }).num_turns ?? null,
+                }),
+              );
             }
           } catch {
             // JSON 파싱 실패한 줄은 무시

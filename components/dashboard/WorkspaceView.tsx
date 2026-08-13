@@ -365,6 +365,13 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         /** 진행 띠 표시용 — 이 전송이 어느 단계인지 */
         phase?: 'design' | 'run';
         /**
+         * 새 Claude 세션으로 전송 — 설계 대화를 --resume으로 상속하지 않는다.
+         * TC 수행 배치가 설계 대화·이전 배치의 스냅샷을 안 물려받게 해 컨텍스트를
+         * 배치 단위로 고정한다(누적 폭증 차단). 반환된 세션 id도 스토어에 안 쓴다 —
+         * 설계 세션(activeSession.claudeSessionId)을 덮으면 안 되므로.
+         */
+        freshSession?: boolean;
+        /**
          * #4 재시도 훅 — 실패 시 이걸 그대로 다시 실행한다. 안 주면 이 handleSend를
          * 같은 인자로 재실행한다(=Claude --resume). TC 수행처럼 전송 뒤 파싱·저장이
          * 더 붙는 액션은 그 전체를 감싼 thunk를 넘겨 "이어서"가 온전해지게 한다.
@@ -398,8 +405,9 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: content,
-            // 두 번째 메시지부터 --resume으로 이전 대화 이어서
-            claudeSessionId: session.claudeSessionId,
+            // 두 번째 메시지부터 --resume으로 이전 대화 이어서.
+            // freshSession이면 상속하지 않는다(수행 배치 격리).
+            claudeSessionId: opts?.freshSession ? undefined : session.claudeSessionId,
             attachments,
             agentMode: activeAgentMode,
             // 수행 모드 — 전용 프로필 Playwright만 붙여 브라우저 충돌 방지
@@ -441,7 +449,10 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                     claudeSessionId: string;
                     model?: string | null;
                   };
-                  await updateClaudeSessionId(meta.claudeSessionId);
+                  // freshSession(수행 배치)은 임시 세션이라 설계 세션 포인터를 안 덮는다
+                  if (!opts?.freshSession) {
+                    await updateClaudeSessionId(meta.claudeSessionId);
+                  }
                   // CLI가 보고한 실제 모델 ID 기억 (헤더 버전 라벨 + 새로고침 유지)
                   if (meta.model) {
                     setDetectedClaudeModel(meta.model);
@@ -539,15 +550,21 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
   );
 
   /**
-   * TC 자동 수행 — 기존 채팅 파이프라인(Claude Code + Playwright MCP)을 버튼으로 트리거한다.
+   * TC 자동 수행 — Playwright로 stage에서 실제 수행하고 결과를 tc 테이블에 기입한다.
    *
-   * 사용자가 매번 "stage에서 수행해줘"를 치던 것을 버튼 한 번으로. 흐름:
-   *   1) 선택 TC를 수행 프롬프트로 조립 (결과를 파싱 가능한 표 형식으로 요구)
-   *   2) handleSend로 Claude에 전송 → Claude가 Playwright로 stage 수행
-   *   3) 응답의 `| TC-ID | 결과 | 사유 |` 표를 파싱
-   *   4) auto-results로 tc 테이블에 일괄 기입 → 표 새로고침
+   * ── 왜 소배치·세션 분리인가 (2026-08-13) ─────────────────────────────
+   * 예전엔 선택 TC 전부를 한 프롬프트로 묶어 **설계 세션을 --resume**해 돌렸다. 그러면
+   * ① 설계 대화(요약·게이트·11컬럼 표) 전체를 상속하고 ② 매 동작의 페이지 스냅샷이
+   * 히스토리에 쌓여, 매 턴 그 전부를 다시 실어 컨텍스트가 O(N²)로 폭증했다 — TC 한두
+   * 건 지나면 벽에 부딪혔다("한 건밖에 못 함", 사용자 실측).
    *
-   * ⚠️ 실제 stage 수행이라 토큰·시간이 크다(TC 수만큼). 사람이 버튼을 눌러야만 돈다.
+   * 그래서 3건씩 소배치로 끊고, **각 배치를 새 세션(freshSession)** 으로 돌린다:
+   *   · 설계 대화를 상속하지 않는다 → 시작 컨텍스트가 가볍다
+   *   · 이전 배치의 스냅샷을 안 물려받는다 → 누적이 배치 안(≤3건)으로 고정된다 (N²→N)
+   *   · 로그인은 영속 Playwright 프로필에 있어 새 세션도 로그인 상태 유지(재로그인 0)
+   * 판단 근거(기능 맥락)는 계약 요약으로 배치마다 주입해 품질을 유지한다.
+   *
+   * ⚠️ 실제 stage 수행이라 토큰·시간이 크다. 사람이 버튼을 눌러야만 돈다.
    */
   const handleRunTc = useCallback(
     async (
@@ -562,74 +579,117 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
     ) => {
       if (!activeSession || tcs.length === 0) return;
 
-      const prompt = [
-        '[TC 자동 수행 — stage 환경 (tms-stage.roouty.io)]',
-        '아래 TC를 Playwright로 stage에서 **실제 수행**하고 결과를 판정해줘.',
-        '',
-        '수행 규칙:',
-        '- 실행 가능 → 수행 후 Pass / Fail 판정',
-        '- 데이터 세팅이 필요하거나 명세 미정의 → Blocked + 사유 (무리하게 수행하지 말 것)',
-        '- 실행 리스크(BLOCK 예상)는 미리 판단해 Blocked 처리하고 필요한 데이터 세팅을 사유에 적을 것',
-        '',
-        '⚠️ 응답 **맨 끝**에 반드시 아래 형식의 표만 출력 (자동 기입용 — 결과는 Pass/Fail/Blocked/Not Test 중 하나):',
-        '| TC-ID | 결과 | 사유 |',
-        '| TC-01 | Pass | ... |',
-        '',
-        '[수행할 TC]',
-        ...tcs.map((t) =>
-          [
-            `${t.localId}`,
-            t.subCategory && `  중분류: ${t.subCategory}`,
-            t.phase && `  검증단계: ${t.phase}`,
-            t.precondition && `  전제조건: ${t.precondition}`,
-            t.steps && `  스텝: ${t.steps}`,
-            t.expected && `  기대결과: ${t.expected}`,
-          ]
-            .filter(Boolean)
-            .join('\n'),
-        ),
-      ].join('\n');
+      // 계약 요약 — 판단 근거를 배치마다 주입(원문 재조회 없이). PR·코드 소스는 수행 판정에
+      // 직접 안 쓰므로 제외하고 문서형 소스 요약 + 핵심 요구만 압축한다.
+      const c = absorb.contract;
+      const digest = c
+        ? [
+            '[기능 맥락 — 이미 흡수된 요약. 티켓·기획 원문을 다시 조회하지 말 것]',
+            ...c.sources
+              .filter((s) => s.type !== 'PR' && s.type !== '코드')
+              .map((s) => `- ${s.id}: ${s.summary}`),
+            ...(c.requirements.length
+              ? [`[핵심 요구] ${c.requirements.map((r) => r.text).join(' / ')}`]
+              : []),
+            '',
+          ].join('\n')
+        : '';
 
-      const full =
-        (await handleSend(prompt, [], {
-          displayMessage: `▶ TC ${tcs.length}건 stage 자동 수행 요청 (${tcs.map((t) => t.localId).join(', ')})`,
-          tcRun: true,
-          phase: 'run',
-          // 재시도는 수행+파싱+기입 전체를 다시 — 부분 결과만 남고 표에 안 들어가는 일 방지
-          onRetry: () => handleRunTc(tcs),
-        })) ?? '';
+      const buildPrompt = (
+        batch: typeof tcs,
+        idx: number,
+        total: number,
+      ) =>
+        [
+          `[TC 자동 수행 — stage 환경 (tms-stage.roouty.io) · 배치 ${idx + 1}/${total}]`,
+          '아래 TC를 Playwright로 stage에서 **실제 수행**하고 결과를 판정해줘.',
+          '',
+          digest,
+          '⚠️ 응답 **맨 끝**에 반드시 아래 형식의 표만 출력 (자동 기입용 — 결과는 Pass/Fail/Blocked/Not Test 중 하나):',
+          '| TC-ID | 결과 | 사유 |',
+          '| TC-01 | Pass | ... |',
+          '',
+          '[수행할 TC]',
+          ...batch.map((t) =>
+            [
+              `${t.localId}`,
+              t.subCategory && `  중분류: ${t.subCategory}`,
+              t.phase && `  검증단계: ${t.phase}`,
+              t.precondition && `  전제조건: ${t.precondition}`,
+              t.steps && `  스텝: ${t.steps}`,
+              t.expected && `  기대결과: ${t.expected}`,
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          ),
+        ]
+          .filter(Boolean)
+          .join('\n');
 
-      // 응답에서 | TC-ID | 결과 | 사유 | 표를 파싱
+      // 결과 표 파서 — 한 배치 응답에서 | TC-ID | 결과 | 사유 | 행만 뽑는다
       const RESULTS = new Set(['Pass', 'Fail', 'Blocked', 'Not Test']);
-      const parsed: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }> = [];
-      for (const line of full.split('\n')) {
-        if (!line.trim().startsWith('|')) continue;
-        const cells = line.split('|').map((c) => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
-        if (cells.length < 2) continue;
-        const [localId, result, note] = cells;
-        if (!/^TC-\d+/i.test(localId) || !RESULTS.has(result)) continue;
-        parsed.push({ localId, result: result as 'Pass' | 'Fail' | 'Blocked' | 'Not Test', note: note || undefined });
+      const parseResults = (full: string) => {
+        const out: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }> = [];
+        for (const line of full.split('\n')) {
+          if (!line.trim().startsWith('|')) continue;
+          const cells = line.split('|').map((x) => x.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
+          if (cells.length < 2) continue;
+          const [localId, result, note] = cells;
+          if (!/^TC-\d+/i.test(localId) || !RESULTS.has(result)) continue;
+          out.push({ localId, result: result as 'Pass' | 'Fail' | 'Blocked' | 'Not Test', note: note || undefined });
+        }
+        return out;
+      };
+
+      // 3건씩 소배치로 분할
+      const BATCH = 3;
+      const batches: Array<typeof tcs> = [];
+      for (let i = 0; i < tcs.length; i += BATCH) batches.push(tcs.slice(i, i + BATCH));
+
+      let totalApplied = 0;
+      const allUnmatched: string[] = [];
+
+      for (let bi = 0; bi < batches.length; bi++) {
+        const batch = batches[bi];
+        const ids = batch.map((t) => t.localId).join(', ');
+
+        const full =
+          (await handleSend(buildPrompt(batch, bi, batches.length), [], {
+            displayMessage: `▶ [배치 ${bi + 1}/${batches.length}] TC ${batch.length}건 stage 수행 (${ids})`,
+            tcRun: true,
+            phase: 'run',
+            freshSession: true, // 배치마다 새 세션 — 설계 대화·이전 배치 스냅샷 상속 안 함
+            // 실패 시 이 배치부터 이어서 재시도 (완료된 앞 배치는 이미 기입됨)
+            onRetry: () => handleRunTc(tcs.slice(bi * BATCH)),
+          })) ?? '';
+
+        // 빈 응답 = 에러/중단 → handleSend가 재시도 배너를 세워둠. 남은 배치는 멈춘다.
+        if (!full.trim()) return;
+
+        const parsed = parseResults(full);
+        if (parsed.length === 0) {
+          addToast('warning', `[배치 ${bi + 1}] 결과 표를 못 읽었습니다. 대화에서 확인 후 수동 기입해주세요.`);
+          continue;
+        }
+
+        const res = await fetch('/api/workspace/tc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'auto-results', sessionId: activeSession.id, results: parsed }),
+        });
+        const body = (await res.json()) as { applied: number; unmatched: string[] };
+        totalApplied += body.applied;
+        allUnmatched.push(...body.unmatched);
+        setTcSavedAt(Date.now()); // 배치마다 즉시 표 새로고침(점진적 반영)
       }
 
-      if (parsed.length === 0) {
-        addToast('warning', '수행은 됐지만 결과 표를 못 읽었습니다. 대화에서 확인하고 수동 기입해주세요.');
-        return;
-      }
-
-      const res = await fetch('/api/workspace/tc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'auto-results', sessionId: activeSession.id, results: parsed }),
-      });
-      const body = (await res.json()) as { applied: number; unmatched: string[] };
-      setTcSavedAt(Date.now()); // TcPanel 새로고침
       addToast(
-        body.unmatched.length ? 'warning' : 'success',
-        `${body.applied}건 자동 기입` +
-          (body.unmatched.length ? ` · 미매칭 ${body.unmatched.join(', ')}` : ''),
+        allUnmatched.length ? 'warning' : 'success',
+        `총 ${totalApplied}건 자동 기입` +
+          (allUnmatched.length ? ` · 미매칭 ${allUnmatched.join(', ')}` : ''),
       );
     },
-    [activeSession, handleSend, addToast],
+    [activeSession, absorb.contract, handleSend, addToast],
   );
 
   const handleStop = useCallback(() => {
