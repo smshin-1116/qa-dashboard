@@ -612,9 +612,10 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
       const buildPrompt = (part: typeof tcs) =>
         [
           '[TC 자동 수행 — stage 환경 (tms-stage.roouty.io / API: tms-api-stage.roouty.io)]',
-          '아래 TC 전부를 수행하고 결과를 판정해줘. 판정 방식은 시스템 지시를 따라라',
-          '(백엔드/구현으로 되는 건 repo·stage API read-only로, 화면이 꼭 필요한 것만 Playwright).',
-          '같은 화면·전제를 공유하는 TC는 한 번만 이동해 함께 확인해 중복을 줄여라.',
+          '아래 TC 전부를 **시스템 지시의 수행 절차대로** 판정해줘:',
+          '먼저 전체를 훑어 분류(백엔드 판정 가능 vs 화면 필요, 화면은 화면·전제별 그룹) →',
+          '백엔드 그룹을 repo·stage API read-only로 일괄 판정 → 화면 그룹은 화면 단위로 한 번',
+          '이동해 그룹 TC를 모두 확인. **표 순서대로 한 건씩 이동·확인하지 말 것.**',
           '',
           digest,
           '⚠️ 응답 **맨 끝**에 반드시 아래 형식의 표만 출력 (자동 기입용 — 결과는 Pass/Fail/Blocked/Not Test 중 하나):',
