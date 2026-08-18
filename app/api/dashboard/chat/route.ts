@@ -127,7 +127,7 @@ const TC_TABLE_FORMAT = `## TC 출력 형식 (마크다운 테이블, 반드시 
 | TC-001 | 배차 관리 | 자동 최적화 배차 | 배차 실행 | 정상 | 로그인 상태, 주문 3건 등록 | 1. 배차 실행 버튼 클릭 2. 배차 결과 화면 확인 | 주문 3건이 배차 완료 상태로 표시됨 | PC(Web) | Not Test | |
 
 ### 컬럼 규칙
-- **TC-ID**: TC-001, TC-002… 형식 (3자리 zero-padding)
+- **TC-ID**: 반드시 \`TC-001\`, \`TC-002\` … 형식 (TC- 접두어 + 3자리 zero-padding). 숫자만 쓰거나 다른 접두어(MV- 등)를 쓰지 말 것
 - **대분류 / 중분류 / 소분류**: 3단계 기능 분류 (같은 분류는 최상단 1회만 표기)
 - **검증단계**: 정상 / 부정 / 예외 중 하나
 - **전제조건**: 테스트 시작 전 필요한 상태 (로그인 여부, 데이터 준비 등)
@@ -451,6 +451,11 @@ export async function POST(req: NextRequest) {
    * 불필요한 MCP(atlassian·github 등) 스키마 비용도 줄인다.
    */
   if (body.tcRun) {
+    // 단계별 모델 고정(2026-08-18): 수행은 Playwright 다단계 + repo·판정이라 안정성이
+    // 중요해 Sonnet로 고정한다. 설계·분석 등 그 밖의 단계는 --model 미지정 → CLI 기본 모델.
+    // (alias 'sonnet' — 계정의 현재 Sonnet 버전으로 CLI가 해석)
+    args.push('--model', 'sonnet');
+
     const runProfile = join(process.env.HOME ?? tmpdir(), '.qa-tc-run-profile');
     const mcpConfigPath = join(tmpdir(), 'qa-tc-run-mcp.json');
     await writeFile(

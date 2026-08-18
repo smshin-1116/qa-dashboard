@@ -499,8 +499,10 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                   if (!opts?.freshSession) {
                     await updateClaudeSessionId(meta.claudeSessionId);
                   }
-                  // CLI가 보고한 실제 모델 ID 기억 (헤더 버전 라벨 + 새로고침 유지)
-                  if (meta.model) {
+                  // CLI가 보고한 실제 모델 ID 기억 (헤더 버전 라벨 + 새로고침 유지).
+                  // 단, 수행(freshSession)은 Sonnet 고정이라 그 모델로 헤더가 바뀌면 오해를
+                  // 준다 — 설계/기본 모델 표시를 유지하려고 freshSession일 땐 갱신 안 함.
+                  if (meta.model && !opts?.freshSession) {
                     setDetectedClaudeModel(meta.model);
                     persistDetectedClaudeModel(meta.model);
                   }

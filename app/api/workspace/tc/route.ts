@@ -11,6 +11,7 @@ import {
   upsertFinding,
   type TcRowDb,
 } from '@/lib/workspace/repo';
+import { normalizeTcId } from '@/lib/tcId';
 import { assignCatalogIds, candidatesFor, loadCatalog } from '@/lib/workspace/catalog';
 import { makeFingerprint } from '@/lib/workspace/fingerprint';
 import { buildComment, extractTicketKeys, tally } from '@/lib/workspace/tcReport';
@@ -218,8 +219,9 @@ export async function POST(req: Request) {
       });
       let n = 0;
       for (const [i, row] of body.rows.entries()) {
-        // 작업 내 일련번호 — 카탈로그 번호는 넘길 때 받는다 (2026-08-07 결정)
-        const localId = row['TC-ID']?.trim() || `TC-${String(i + 1).padStart(2, '0')}`;
+        // TC-ID를 "TC-001" 형식으로 통일해 저장 (숫자·MV- 등 제각각 형식을 강제 정규화).
+        // local_id가 곧 수행 결과 매칭 키이므로 여기서 형식을 못 박아야 전 구간이 일관된다.
+        const localId = normalizeTcId(row['TC-ID'], i);
         const known = new Set([
           'TC-ID', '대분류', '중분류', '소분류', '검증단계',
           '전제조건', '테스트 스텝', '기대결과', '플랫폼', '결과', '비고',

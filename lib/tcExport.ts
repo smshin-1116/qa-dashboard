@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { Session } from '@/types/session';
+import { normalizeTcId } from '@/lib/tcId';
 
 export interface TcRow {
   'TC-ID': string;
@@ -212,12 +213,10 @@ function buildRow(raw: Record<string, string>, index: number): TcRow {
     return '';
   };
 
-  const tcId =
-    get('TC-ID') ||
-    `TC-${String(index + 1).padStart(3, '0')}`;
-
   return {
-    'TC-ID': tcId.startsWith('TC-') ? tcId : `TC-${tcId.padStart(3, '0')}`,
+    // XLSX도 저장(local_id)과 같은 규칙으로 TC-001 형식 통일 (구 로직은 'MV-001'을
+    // 'TC-MV-001'로 만드는 버그가 있었다 — 공용 normalizeTcId로 일원화)
+    'TC-ID': normalizeTcId(get('TC-ID'), index),
     대분류: get('대분류'),
     중분류: get('중분류'),
     소분류: get('소분류'),
