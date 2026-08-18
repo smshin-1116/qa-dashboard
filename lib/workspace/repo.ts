@@ -486,17 +486,20 @@ export function upsertTc(input: TcInput): void {
          (work_id, local_id, category, sub_category, detail_category, phase,
           precondition, steps, expected, platform, note, extra, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       -- COALESCE로 새 값이 null이면 기존 값을 유지한다. 희소한 표(예: 수행 결과 표가
+       -- 잘못 섞이거나 설계 재저장 시 일부 컬럼만 있을 때) null이 설계·수행 값을 지우던
+       -- 회귀를 막는다 (2026-08-18). 실제 편집은 non-null이라 정상 반영된다.
        ON CONFLICT(work_id, local_id) DO UPDATE SET
-         category        = excluded.category,
-         sub_category    = excluded.sub_category,
-         detail_category = excluded.detail_category,
-         phase           = excluded.phase,
-         precondition    = excluded.precondition,
-         steps           = excluded.steps,
-         expected        = excluded.expected,
-         platform        = excluded.platform,
-         note            = excluded.note,
-         extra           = excluded.extra,
+         category        = COALESCE(excluded.category, category),
+         sub_category    = COALESCE(excluded.sub_category, sub_category),
+         detail_category = COALESCE(excluded.detail_category, detail_category),
+         phase           = COALESCE(excluded.phase, phase),
+         precondition    = COALESCE(excluded.precondition, precondition),
+         steps           = COALESCE(excluded.steps, steps),
+         expected        = COALESCE(excluded.expected, expected),
+         platform        = COALESCE(excluded.platform, platform),
+         note            = COALESCE(excluded.note, note),
+         extra           = COALESCE(excluded.extra, extra),
          updated_at      = excluded.updated_at`,
     )
     .run(

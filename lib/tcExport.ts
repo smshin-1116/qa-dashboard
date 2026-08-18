@@ -73,6 +73,21 @@ function normalizeHeader(raw: string): keyof TcRow | null {
 }
 
 /**
+ * 설계 TC 표인지 판별한다 — TC-ID + **설계 컬럼(스텝·기대결과·전제조건)** 이 있어야 한다.
+ *
+ * ⚠️ 수행 결과 표(`| TC-ID | 결과 | 사유 |`)는 TC-ID가 있어 예전엔 TC 표로 오인·저장됐고,
+ * 그러면 설계 컬럼이 전부 비고 `사유`만 extra로 남았다(2026-08-18 버그). 결과 표는 설계
+ * 컬럼이 없으므로 여기서 걸러 저장 대상에서 제외한다. 수행 결과는 auto-results가 별도 기입.
+ */
+function isDesignTcTable(headers: string[]): boolean {
+  const norm = headers.map((h) => normalizeHeader(h));
+  const hasTcId = norm.includes('TC-ID');
+  const hasDesignCol =
+    norm.includes('테스트 스텝') || norm.includes('기대결과') || norm.includes('전제조건');
+  return hasTcId && hasDesignCol;
+}
+
+/**
  * 마크다운 표의 한 행을 셀 배열로 나눈다.
  *
  * ⚠️ `split('|').filter(Boolean)`을 쓰면 안 된다 — 행 앞뒤 파이프의 빈 조각을
@@ -122,11 +137,8 @@ export function extractTcRows(content: string): TcRow[] {
 
     const headers = splitRow(lines[0]);
 
-    // TC 테이블 여부 확인 (TC-ID 또는 ID 컬럼 포함 필요)
-    const hasTcIdCol = headers.some(
-      (h) => h === 'TC-ID' || h === 'ID' || h === 'TC ID'
-    );
-    if (!hasTcIdCol) continue;
+    // 설계 TC 표만 (TC-ID + 스텝/기대결과). 수행 결과 표(TC-ID·결과·사유)는 제외.
+    if (!isDesignTcTable(headers)) continue;
 
     lines.slice(1).forEach((row, i) => {
       const cells = splitRow(row);
@@ -163,8 +175,8 @@ export function extractTcRawRows(content: string): Array<Record<string, string>>
     if (lines.length < 2) continue;
 
     const headers = splitRow(lines[0]);
-    // TC 표가 아닌 일반 표(요약·비교표 등)는 건너뛴다
-    if (!headers.some((h) => h === 'TC-ID' || h === 'ID' || h === 'TC ID')) continue;
+    // 설계 TC 표만 저장한다 (TC-ID + 스텝/기대결과). 수행 결과 표(TC-ID·결과·사유)는 제외.
+    if (!isDesignTcTable(headers)) continue;
 
     /**
      * ditto 채우기 — 분류 3컬럼은 빈 셀이 "위와 같음"을 뜻한다 (LLM 표 관행).
