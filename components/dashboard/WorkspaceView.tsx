@@ -168,9 +168,10 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
   const [pipelineRun, setPipelineRun] = useState<{ url: string; seq: number } | null>(null);
   const [pipelineRunning, setPipelineRunning] = useState(false);
 
-  /** ⓪흡수·①교차분석 상태 — 계약은 서버(tc_work.contract)가 원본이다 */
+  /** ⓪흡수·①교차분석 상태 — 계약은 서버(tc_work.contract)가 원본이다.
+   *  'skipped' = 단일 소스라 codex 교차분석을 건너뛴 상태(진행 띠에 "생략"으로 표시). */
   const [absorb, setAbsorb] = useState<{
-    status: 'idle' | 'running' | 'ready' | 'fallback';
+    status: 'idle' | 'running' | 'ready' | 'fallback' | 'skipped';
     contract: Contract | null;
     reason: string | null;
   }>({ status: 'idle', contract: null, reason: null });
@@ -219,11 +220,41 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
       let session = activeSession;
       if (!session) session = await createSession(activeModel, workspaceKey);
 
-      // 제목: 첫 티켓 키 > 첫 URL > 텍스트 앞머리
-      const title =
-        urls.find((u) => /\/browse\/[A-Z][A-Z0-9]+-\d+/.test(u))?.match(/[A-Z][A-Z0-9]+-\d+/)?.[0] ??
-        urls[0] ??
-        text.slice(0, 40);
+      // 제목(#1): 티켓 URL이면 "DV-*** 분석 및 설계"로 고정, 아니면 텍스트/URL 앞머리로 임시.
+      // 짧게 다듬는 헬퍼 — 공백 정리 + 28자 컷.
+      const shortTitle = (s: string, max = 28) => {
+        const t = s.replace(/\s+/g, ' ').trim();
+        return t.length > max ? `${t.slice(0, max)}…` : t;
+      };
+      const ticketKey = urls
+        .map((u) => u.match(/\/browse\/([A-Z][A-Z0-9]+-\d+)/)?.[1])
+        .find(Boolean);
+      const title = ticketKey
+        ? `${ticketKey} 분석 및 설계`
+        : shortTitle(text || urls[0] || '새 작업');
+
+      // 사이드바 작업 이력에 즉시 반영 (흡수 시작 시점부터 어떤 작업인지 보이게)
+      void renameSession(session.id, title);
+
+      // 단일 소스(티켓 1개·텍스트 등)는 codex 교차분석이 무의미하다 — 대조할 다른 소스가
+      // 없어 모순·누락을 찾을 게 없고 게이트도 빈다. 그래서 codex·게이트를 건너뛰고 Claude가
+      // 바로 읽고 분석→설계한다 (2026-08-18 사용자 결정). URL 2개 이상만 codex 흡수·교차분석.
+      if (urls.length < 2) {
+        setAbsorb({ status: 'skipped', contract: null, reason: null });
+        const directMsg = [
+          '[소스를 읽고 바로 TC를 설계·작성 — codex 교차분석 생략(단일 소스)]',
+          ...(urls.length ? [urls.join('\n')] : []),
+          ...(text ? [text] : []),
+          '',
+          '위 소스(티켓/기획 등)를 읽고 요구사항·검증 포인트·엣지케이스를 분석한 뒤, 바로',
+          '11컬럼 마크다운 표(TC-ID·대분류·중분류·소분류·검증단계·전제조건·테스트 스텝·기대결과·플랫폼·결과·비고)로 TC를 설계·작성해줘.',
+        ].join('\n');
+        await handleSend(directMsg, [], {
+          phase: 'design',
+          displayMessage: `▶ ${title} — 소스 읽고 분석·TC 설계 진행 (codex 생략)`,
+        });
+        return;
+      }
 
       setAbsorb({ status: 'running', contract: null, reason: null });
       try {
@@ -239,6 +270,12 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         };
         if (body.contract) {
           setAbsorb({ status: 'ready', contract: body.contract, reason: null });
+          // 텍스트 소스(티켓 아님)면 흡수 결과의 핵심 요구/요약으로 제목을 더 낫게 추천·갱신
+          if (!ticketKey) {
+            const c = body.contract;
+            const derived = c.requirements[0]?.text ?? c.sources[0]?.summary ?? '';
+            if (derived) void renameSession(session.id, shortTitle(derived, 30));
+          }
         } else {
           // 폴백 — ⓪①을 Claude 대화로. 배지는 GatePanel이 표시하고 작업은 멈추지 않는다
           setAbsorb({ status: 'fallback', contract: null, reason: body.fallbackReason });
@@ -258,7 +295,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeSession, activeModel, workspaceKey, createSession],
+    [activeSession, activeModel, workspaceKey, createSession, renameSession],
   );
 
   /**
@@ -310,8 +347,17 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         '위 전제와 요구만으로 TC를 설계하고, 11컬럼 마크다운 표(TC-ID·대분류·중분류·소분류·검증단계·전제조건·테스트 스텝·기대결과·플랫폼·결과·비고)로 작성해줘.',
       ].join('\n');
 
-      // phase 'design' → 진행 띠 ③~⑥ 활성 · 실패 시 이 요청(전제는 이미 저장됨)만 재전송
-      await handleSend(msg, [], { phase: 'design' });
+      // phase 'design' → 진행 띠 ③~⑥ 활성 · 실패 시 이 요청(전제는 이미 저장됨)만 재전송.
+      // #3: CLI엔 전체 전제 msg를 보내되, 대화엔 짧은 요약만 남긴다 — 긴 전제 텍스트가
+      // 작업 대화를 가득 채워 가독성을 해치던 문제 해소. 응답(분석 결과+TC)만 보이게 된다.
+      const decidedSummary =
+        decisions.length > 0
+          ? `전제 ${decisions.length}건 고정`
+          : '전제 없이 진행';
+      await handleSend(msg, [], {
+        phase: 'design',
+        displayMessage: `✅ 확인 게이트 통과 (${decidedSummary}) → TC 설계·작성 진행`,
+      });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [absorb.contract, activeSession],
@@ -603,7 +649,11 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           const cells = line.split('|').map((x) => x.trim()).filter((_, i, a) => i > 0 && i < a.length - 1);
           if (cells.length < 2) continue;
           const [localId, result, note] = cells;
-          if (!/^TC-\d+/i.test(localId) || !RESULTS.has(result)) continue;
+          // 헤더('TC-ID')·구분선('---')·빈 id만 제외하고, 결과가 유효하면 **어떤 id 형식이든** 받는다.
+          // ⚠️ 예전엔 /^TC-\d+/로 한정해, local_id가 숫자(1,2,3)·MV-·RPT- 등인 작업은 결과가
+          //    통째로 파싱에서 탈락해 기입이 안 됐다 (회귀 수정 2026-08-18). 매칭은 서버가 정규화로 처리.
+          if (!localId || /^-{2,}$/.test(localId) || localId.toUpperCase() === 'TC-ID') continue;
+          if (!RESULTS.has(result)) continue;
           out.push({ localId, result: result as 'Pass' | 'Fail' | 'Blocked' | 'Not Test', note: note || undefined });
         }
         return out;
@@ -618,9 +668,10 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           '이동해 그룹 TC를 모두 확인. **표 순서대로 한 건씩 이동·확인하지 말 것.**',
           '',
           digest,
-          '⚠️ 응답 **맨 끝**에 반드시 아래 형식의 표만 출력 (자동 기입용 — 결과는 Pass/Fail/Blocked/Not Test 중 하나):',
+          '⚠️ 응답 **맨 끝**에 반드시 아래 형식의 결과 표만 출력 (자동 기입용 — 결과는 Pass/Fail/Blocked/Not Test 중 하나):',
           '| TC-ID | 결과 | 사유 |',
-          '| TC-01 | Pass | ... |',
+          '| (아래 [수행할 TC]의 ID를 글자 그대로) | Pass | ... |',
+          '※ TC-ID는 [수행할 TC]에 적힌 ID를 **변형 없이 그대로** 쓸 것 (예: 1, MV-003, TC-007 등 — 형식을 바꾸거나 zero-padding 추가 금지).',
           '',
           '[수행할 TC]',
           ...part.map((t) =>
@@ -677,8 +728,11 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         카운트 기준으로 미리 끊는다. 세션당 최대 CHUNK건이라 절대 그 지점에 닿지 않는다.
         작은/중간 세트는 통째로 1세션(빠름 — 워밍업·네비게이션 공유). 큰 세트만 청크로
         끊고 청크마다 저장 → 중간 실패해도 앞 청크 결과는 남고 그 청크부터 재시도된다.
+
+        임계값 20 (2026-08-18): 명세 로드 제거·로그인 재사용으로 세션이 가벼워져 한 세션이
+        20건까지 감당 가능. 그전 보수적 값 10에서 상향 — 분할이 덜 일어나 플랜·네비 공유 이득↑.
       */
-      const CHUNK = 10;
+      const CHUNK = 20;
 
       if (tcs.length <= CHUNK) {
         const r = await runOne(
@@ -736,30 +790,33 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
   const tcDrafted = activeSession ? collectTcRawRows(activeSession).length > 0 : false;
   const designRunning = streamPhase === 'design' || pipelineRunning;
   const runRunning = streamPhase === 'run';
+  const codexSkipped = absorb.status === 'skipped'; // 단일 소스 → codex 교차분석 생략
   const bandStages: Array<{
     label: string;
-    status: 'wait' | 'run' | 'done';
+    status: 'wait' | 'run' | 'done' | 'skip';
     tone: string;
     title: string;
     arrowBefore?: boolean;
   }> = [
     {
       label: '⓪ 📥 개별 흡수',
-      status: absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait',
+      status: codexSkipped ? 'skip' : absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait',
       tone: '#10A37F',
-      title: 'Codex 세션 1개가 담당 — 입력 카드에서 시작',
+      title: codexSkipped ? '단일 소스 — codex 생략, Claude가 바로 읽음' : 'Codex 세션 1개가 담당 — 입력 카드에서 시작',
     },
     {
       label: '① 🔀 교차 분석',
-      status: absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait',
+      status: codexSkipped ? 'skip' : absorb.status === 'running' ? 'run' : absorb.contract ? 'done' : 'wait',
       tone: '#10A37F',
-      title: 'Codex — 소스 간 모순·중복·누락 대조',
+      title: codexSkipped ? '단일 소스 — 대조할 다른 소스가 없어 생략' : 'Codex — 소스 간 모순·중복·누락 대조',
     },
     {
       label: '② ✋ 확인',
-      status: (absorb.contract?.decisions.length ?? 0) > 0 ? 'done' : absorb.contract ? 'run' : 'wait',
+      status: codexSkipped
+        ? 'skip'
+        : (absorb.contract?.decisions.length ?? 0) > 0 ? 'done' : absorb.contract ? 'run' : 'wait',
       tone: 'var(--info)',
-      title: '사람 — 확인 게이트에서 전제 확정',
+      title: codexSkipped ? '단일 소스 — 게이트 생략(모순·누락 없음)' : '사람 — 확인 게이트에서 전제 확정',
       arrowBefore: true,
     },
     {
@@ -866,9 +923,6 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                     busyLabel={absorb.status === 'running' ? '⓪① Codex 분석 중…' : undefined}
                   />
 
-                  {/* #4 에러 이어가기 배너 — 저장된 지점에서 재시도 */}
-                  {retryBanner}
-
                   {/* ── 진행 · 모델 분담 ─────────────────────────────── */}
                   <div className="rounded-[13px] border border-[var(--line)] bg-[var(--panel)] p-3.5">
                     <button
@@ -886,21 +940,26 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                     */}
                     <div className="flex items-center gap-1 flex-wrap mt-2 mb-2.5 font-mono text-[10px]">
                       {bandStages.map((s) => {
-                        // run은 담당색 무관 앰버(진행) · wait은 회색 · done은 담당색
+                        // run=앰버(진행) · wait=회색 · skip=회색(생략, 취소선) · done=담당색
                         const color =
-                          s.status === 'run' ? 'var(--warn)' : s.status === 'wait' ? 'var(--tx-4)' : s.tone;
+                          s.status === 'run'
+                            ? 'var(--warn)'
+                            : s.status === 'wait' || s.status === 'skip'
+                              ? 'var(--tx-4)'
+                              : s.tone;
                         return (
                           <span key={s.label} className="contents">
                             {s.arrowBefore && <span className="text-[var(--tx-4)]">→</span>}
                             <span
                               className={
                                 'px-2 py-0.5 rounded border inline-flex items-center gap-1 ' +
-                                (s.status === 'run' ? 'animate-pulse' : '')
+                                (s.status === 'run' ? 'animate-pulse ' : '') +
+                                (s.status === 'skip' ? 'line-through opacity-60' : '')
                               }
                               style={{
                                 color,
                                 borderColor: `color-mix(in srgb, ${color} 42%, transparent)`,
-                                backgroundColor: `color-mix(in srgb, ${color} ${s.status === 'wait' ? '8' : '16'}%, transparent)`,
+                                backgroundColor: `color-mix(in srgb, ${color} ${s.status === 'wait' || s.status === 'skip' ? '8' : '16'}%, transparent)`,
                               }}
                               title={s.title}
                             >
@@ -911,6 +970,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                                 />
                               )}
                               {s.label}
+                              {s.status === 'skip' && <span className="no-underline"> 생략</span>}
                             </span>
                           </span>
                         );
@@ -949,6 +1009,12 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                       onProceed={(decisions) => void handleGateProceed(decisions)}
                     />
                   )}
+
+                  {/*
+                    #5 에러 이어가기 배너 — 상단이 아니라 작업 대화 바로 위에 둔다.
+                    오류는 설계·수행 중(이 대화)에서 나므로, 그 맥락 옆에서 재시도하는 게 직관적.
+                  */}
+                  {retryBanner}
 
                   {/* ── 분석 대화 — 응답이 흐르는 곳 (입력은 상단 카드) ── */}
                   {((activeSession?.messages.length ?? 0) > 0 || isStreaming) && (

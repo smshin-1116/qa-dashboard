@@ -87,7 +87,8 @@ export default function SourceInput({
     } else {
       onAbsorb(parsed.urls, parsed.freeText);
     }
-    setRaw('');
+    // #2: 제출 후 입력을 비우지 않는다 — 어떤 티켓·작업을 진행 중인지 계속 보이게 유지한다.
+    // (다음 작업을 시작할 땐 입력 내용을 지우고 새 소스를 넣으면 된다)
   }
 
   return (

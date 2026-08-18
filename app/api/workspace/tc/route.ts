@@ -256,11 +256,18 @@ export async function POST(req: Request) {
     case 'auto-results': {
       const work = tcWorkBySession(body.sessionId);
       if (!work) return NextResponse.json({ error: '작업을 찾을 수 없습니다' }, { status: 404 });
-      const byLocal = new Map(tcsOfWork(work.id).map((t) => [t.local_id, t]));
+      const all = tcsOfWork(work.id);
+      const byLocal = new Map(all.map((t) => [t.local_id, t]));
+      // 정규화 키 — 대소문자·구분자·zero-padding 차이를 흡수한다.
+      // (예: "TC-01" == "TC-001" == "tc 1", "MV-003" == "MV3"). local_id 형식이 작업마다
+      //  달라(숫자·TC-·MV- 등) 모델이 살짝 다르게 뱉어도 매칭되게 하는 폴백. 정확 매칭 우선.
+      const norm = (s: string) =>
+        s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/\d+/g, (m) => String(parseInt(m, 10)));
+      const byNorm = new Map(all.map((t) => [norm(t.local_id), t]));
       let applied = 0;
       const unmatched: string[] = [];
       for (const r of body.results) {
-        const tc = byLocal.get(r.localId);
+        const tc = byLocal.get(r.localId) ?? byNorm.get(norm(r.localId));
         if (!tc) {
           unmatched.push(r.localId);
           continue;

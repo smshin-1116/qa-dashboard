@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { Session } from '@/types/session';
-import { extractTcRows, type TcRow } from '@/lib/tcExport';
+import { extractTcRows } from '@/lib/tcExport';
 import { analyzeTcQuality, type TcQualityResult, type CheckStatus } from '@/lib/tcQuality';
 import { useSessionStore } from '@/stores/useSessionStore';
 
@@ -15,13 +15,13 @@ export default function QualityReport({ session }: { session: Session | null }) 
   // 파이프라인 탭이 store에 직접 addMessage하므로, 실시간 반영 위해 store도 구독
   const storeSession = useSessionStore((state) => state.activeSession);
 
-  const { result, tcRows } = useMemo(() => {
+  const { result } = useMemo(() => {
     const src = storeSession ?? session;
-    if (!src) return { result: null as TcQualityResult | null, tcRows: [] as TcRow[] };
+    if (!src) return { result: null as TcQualityResult | null };
     const allRows = src.messages
       .filter((m) => m.role === 'assistant')
       .flatMap((m) => extractTcRows(m.content));
-    return { result: analyzeTcQuality(allRows), tcRows: allRows };
+    return { result: analyzeTcQuality(allRows) };
   }, [storeSession, session]);
 
   if (!result) {
@@ -133,79 +133,6 @@ export default function QualityReport({ session }: { session: Session | null }) 
         </div>
       )}
 
-      <SheetsExportSection rows={tcRows} />
-    </div>
-  );
-}
-
-// ─── Sheets 내보내기 섹션 ──────────────────────────────────────────────────────
-
-function SheetsExportSection({ rows }: { rows: TcRow[] }) {
-  const [sheetsUrl, setSheetsUrl] = useState('');
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [message, setMessage] = useState('');
-  const [resultSheetName, setResultSheetName] = useState('');
-  const [spreadsheetId, setSpreadsheetId] = useState('');
-
-  const handleExport = async () => {
-    if (!sheetsUrl.trim() || !rows.length) return;
-    setStatus('loading');
-    setMessage('');
-    try {
-      const res = await fetch('/api/sheets/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sheetsUrl: sheetsUrl.trim(), rows }),
-      });
-      const data = await res.json() as { error?: string; sheetName?: string; rowCount?: number; spreadsheetId?: string };
-      if (!res.ok) {
-        setStatus('error');
-        setMessage(data.error ?? '오류가 발생했습니다.');
-      } else {
-        setStatus('success');
-        setResultSheetName(data.sheetName ?? '');
-        setSpreadsheetId(data.spreadsheetId ?? '');
-        setMessage(`${data.rowCount}개 TC 업로드 완료`);
-      }
-    } catch {
-      setStatus('error');
-      setMessage('네트워크 오류가 발생했습니다.');
-    }
-  };
-
-  const sheetsLink = spreadsheetId ? `https://docs.google.com/spreadsheets/d/${spreadsheetId}` : '';
-
-  return (
-    <div className="bg-[var(--inset)] border border-[var(--line)] rounded-lg p-3">
-      <p className="text-[10px] font-bold text-[var(--tx-3)] uppercase tracking-wider mb-2">Sheets 내보내기</p>
-      <input
-        type="text"
-        value={sheetsUrl}
-        onChange={(e) => setSheetsUrl(e.target.value)}
-        placeholder="Sheets URL 또는 ID 붙여넣기..."
-        disabled={status === 'loading'}
-        className="w-full bg-[var(--panel)] border border-[var(--line-2)] rounded-md px-2.5 py-1.5 text-[11px] text-[var(--tx-2)] placeholder:text-[var(--tx-4)] outline-none focus:border-indigo-600 disabled:opacity-50 mb-2"
-      />
-      <button
-        onClick={handleExport}
-        disabled={!sheetsUrl.trim() || !rows.length || status === 'loading'}
-        className="w-full py-1.5 rounded-md bg-emerald-700 text-[11px] font-semibold text-white hover:bg-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-      >
-        {status === 'loading' ? '업로드 중...' : '↑ Sheets에 내보내기'}
-      </button>
-      {status === 'success' && (
-        <div className="mt-2 space-y-0.5">
-          <p className="text-[10px] text-emerald-400">✓ {message} — {resultSheetName}</p>
-          {sheetsLink && (
-            <a href={sheetsLink} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[var(--accent)] hover:underline block">
-              Sheets에서 열기 →
-            </a>
-          )}
-        </div>
-      )}
-      {status === 'error' && (
-        <p className="text-[10px] text-red-400 mt-2 leading-snug">{message}</p>
-      )}
     </div>
   );
 }

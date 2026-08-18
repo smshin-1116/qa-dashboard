@@ -235,14 +235,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   renameSession: async (id, customTitle) => {
     const target = get().sessions.find((s) => s.id === id);
     if (!target) return;
-    if (target.messages.length === 0) return; // draft는 첫 메시지에서 자동 제목 부여
 
     const trimmed = customTitle.trim();
     const updated: Session = {
       ...target,
       customTitle: trimmed.length > 0 ? trimmed : undefined,
     };
-    await saveSession(updated);
+    // draft(메시지 0)는 아직 DB에 없으므로 저장 생략 — customTitle은 in-memory로 두고
+    // 첫 메시지 저장 시 addMessage가 함께 persist한다. (QA 작업이 흡수 직후 제목 지정 가능)
+    if (target.messages.length > 0) await saveSession(updated);
     set((state) => ({
       sessions: state.sessions.map((s) => (s.id === id ? updated : s)),
       activeSession: state.activeSession?.id === id ? updated : state.activeSession,
