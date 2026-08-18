@@ -14,7 +14,7 @@ import {
 import { normalizeTcId } from '@/lib/tcId';
 import { assignCatalogIds, candidatesFor, loadCatalog } from '@/lib/workspace/catalog';
 import { makeFingerprint } from '@/lib/workspace/fingerprint';
-import { buildComment, extractTicketKeys, tally } from '@/lib/workspace/tcReport';
+import { buildComment, extractTicketKeys, extractRunPlan, tally } from '@/lib/workspace/tcReport';
 import { postComments } from '@/lib/workspace/jiraComment';
 import { todayKst } from '@/lib/workspace/db';
 
@@ -449,7 +449,13 @@ export async function POST(req: Request) {
       const rows = tcsOfWork(work.id);
       return NextResponse.json({
         keys: extractTicketKeys(work.title, body.hintText),
-        comment: buildComment({ title: work.title, tcs: rows, today: todayKst() }),
+        // 수행 근거를 코멘트에 남긴다 — 플랜은 대화에서 뽑고, 건별 사유는 tcs.note에서 (2026-08-18)
+        comment: buildComment({
+          title: work.title,
+          tcs: rows,
+          today: todayKst(),
+          plan: extractRunPlan(body.hintText ?? ''),
+        }),
         tally: tally(rows),
         status: work.status,
       });

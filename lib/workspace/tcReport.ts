@@ -98,11 +98,70 @@ function line(t: TcRowDb): string {
   return `${t.local_id}${where ? ` ${where}` : ''}${what ? ` — 기대: ${what}` : ''}`;
 }
 
+/** 마크다운 표 셀 정리 — 파이프·개행 이스케이프 + 길이 컷 (표 깨짐 방지) */
+function cell(s: string | null | undefined, max = 70): string {
+  let v = (s ?? '').replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+  if (v.length > max) v = `${v.slice(0, max)}…`;
+  return v || '—';
+}
+
+const RESULT_ICON: Record<string, string> = {
+  Pass: '✅',
+  Fail: '❌',
+  Blocked: '⛔',
+  'Not Test': '➖',
+};
+const RESULT_LABEL: Record<string, string> = {
+  Pass: 'PASS',
+  Fail: 'FAIL',
+  Blocked: 'BLOCKED',
+  'Not Test': 'N/A',
+};
+
+/** 결과 칸 — 아이콘 + 결과 + 사유(note). "어떻게 검증했는지"가 note에 담긴다 */
+function resultCell(t: TcRowDb): string {
+  const r = t.result ?? '';
+  const icon = RESULT_ICON[r] ?? '·';
+  const label = RESULT_LABEL[r] ?? (r || '?');
+  const note = cell(t.note, 90);
+  return `${icon} **${label}**${note !== '—' ? ` — ${note}` : ''}`;
+}
+
+/**
+ * 작업 대화에서 "수행 플랜" 개요를 뽑는다. 수행 프롬프트가 실행 전에 플랜을 밝히게 하므로
+ * ("플랜: 백엔드 N건 / 화면 그룹 …") 그 표식 줄부터 빈 줄·표 직전까지 몇 줄을 취한다.
+ * 못 찾으면 undefined — 코멘트는 등록 전 미리보기로 사람이 검토하므로, 애매하면 안 넣는 게 낫다.
+ */
+export function extractRunPlan(text: string): string | undefined {
+  const lines = (text ?? '').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (/수행\s*플랜|(^|\s)플랜\s*[:：]/.test(lines[i])) {
+      const out: string[] = [];
+      for (let j = i; j < lines.length && out.length < 6; j++) {
+        const l = lines[j].trim();
+        if (!l) {
+          if (out.length) break;
+          continue;
+        }
+        if (l.startsWith('|')) break; // 결과 표 시작 → 중단
+        out.push(l.replace(/^[#*>\s]+/, ''));
+      }
+      if (out.length) return out.join('\n');
+    }
+  }
+  return undefined;
+}
+
 export interface ReportInput {
   title: string;
   tcs: TcRowDb[];
   /** 오늘 날짜 (KST, YYYY-MM-DD) — 서버 시각에 의존하지 않도록 주입받는다 */
   today: string;
+  /**
+   * 수행 플랜 — 작업 대화에서 뽑은 개요(백엔드/화면 그룹 등). 있으면 "어떻게 검증했는지"를
+   * 코멘트에 근거로 남긴다 (2026-08-18 요청 — 작업자가 검증 방식을 이해하도록).
+   */
+  plan?: string;
 }
 
 /**
@@ -118,51 +177,69 @@ export interface ReportInput {
  * — QA Workspace 자동 등록
  * ```
  */
-export function buildComment({ title, tcs, today }: ReportInput): string {
+export function buildComment({ title, tcs, today, plan }: ReportInput): string {
   const t = tally(tcs);
   const L: string[] = [];
 
-  L.push(`QA 검증 결과 — ${today}`);
+  // 헤더 + 한 줄 요약 (DV-534 신식문님 QA 결과 코멘트 형식)
+  L.push(`## QA 검증 결과 — ${today} (stage)`);
   if (title) L.push(title);
-  L.push(
-    `TC ${t.total}건 · Pass ${t.pass} / Fail ${t.fail} / Blocked ${t.blocked}` +
-      (t.notTest ? ` / Not Test ${t.notTest}` : ''),
-  );
   L.push('');
+  L.push(
+    `TC ${t.total}건 검증 결과입니다. **${t.pass} PASS / ${t.fail} FAIL / ${t.blocked} BLOCKED**` +
+      (t.notTest ? ` · 미수행 ${t.notTest}` : '') +
+      '.',
+  );
 
-  const fails = tcs.filter((x) => x.result === 'Fail');
-  if (fails.length) {
-    L.push(`▪ Fail ${fails.length}건`);
-    for (const x of fails) L.push(`  - ${line(x)}`);
+  // 결과 표 — # | TC-ID | 기대결과 | 결과(아이콘 + 사유). 사유(note)에 "어떻게 검증했는지"가 담긴다.
+  if (tcs.length) {
+    L.push('');
+    L.push('| # | TC-ID | 기대결과 | 결과 |');
+    L.push('| --- | --- | --- | --- |');
+    tcs.forEach((x, i) => {
+      const expected = cell((x.expected || x.steps || '').replace(/^[—–-]\s*/, ''), 70);
+      L.push(`| ${i + 1} | ${x.local_id} | ${expected} | ${resultCell(x)} |`);
+    });
   }
 
-  const blocked = tcs.filter((x) => x.result === 'Blocked');
-  if (blocked.length) {
-    L.push(`▪ Blocked ${blocked.length}건 (검증 시도했으나 진행 불가 — 확인 필요)`);
-    for (const x of blocked) L.push(`  - ${line(x)}`);
+  // 수행 플랜 — "어떻게 검증했는지"의 개요 (대화에서 추출)
+  if (plan?.trim()) {
+    L.push('');
+    L.push('## 수행 플랜');
+    for (const ln of plan.trim().split('\n')) L.push(ln.trim());
   }
 
-  const notTest = tcs.filter((x) => x.result === 'Not Test');
-  if (notTest.length) {
-    // 안 한 것을 숨기지 않는다 — "조용한 실패 금지"와 같은 이유
-    L.push(`▪ 미수행 ${notTest.length}건 — ${notTest.map((x) => x.local_id).join(' · ')}`);
+  // 조치 필요 — Fail·Blocked는 사유와 함께 따로 모아 눈에 띄게
+  const issues = tcs.filter((x) => x.result === 'Fail' || x.result === 'Blocked');
+  if (issues.length) {
+    L.push('');
+    L.push(`## 조치 필요 (${issues.length}건)`);
+    for (const x of issues) {
+      const why = x.note?.trim() || line(x);
+      L.push(`- ${x.local_id} [${x.result}] ${why}`);
+    }
   }
 
+  // 참고 — 인계·커버·미수행 (있을 때만)
+  const extra: string[] = [];
   const handed = tcs.filter((x) => x.handed_off_at && x.catalog_id);
-  if (handed.length) {
-    L.push(`▪ 자동화 인계 ${handed.length}건 — ${handed.map((x) => x.catalog_id).join(' · ')}`);
-  }
-
+  if (handed.length)
+    extra.push(`자동화 인계 ${handed.length}건 — ${handed.map((x) => x.catalog_id).join(' · ')}`);
   const covered = tcs.filter((x) => x.verdict === 'covered' && x.matched_catalog_id);
-  if (covered.length) {
-    L.push(
-      `▪ 기존 자동화 커버 ${covered.length}건 — ${covered
+  if (covered.length)
+    extra.push(
+      `기존 자동화 커버 ${covered.length}건 — ${covered
         .map((x) => `${x.local_id}=${x.matched_catalog_id}`)
         .join(' · ')}`,
     );
+  const notTested = tcs.filter((x) => x.result === 'Not Test');
+  if (notTested.length)
+    extra.push(`미수행 ${notTested.length}건 — ${notTested.map((x) => x.local_id).join(' · ')}`);
+  if (extra.length) {
+    L.push('');
+    L.push('## 참고');
+    for (const e of extra) L.push(`- ${e}`);
   }
-
-  if (!fails.length && !blocked.length) L.push('▪ 실패·차단 없음');
 
   L.push('');
   L.push('— QA Workspace 자동 등록');
