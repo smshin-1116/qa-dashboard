@@ -34,6 +34,7 @@ const PR_RE = /github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
 export default function SourceInput({
   onAbsorb,
   onRunPipeline,
+  onAnalyze,
   busy,
   busyLabel,
 }: {
@@ -41,12 +42,16 @@ export default function SourceInput({
   onAbsorb: (urls: string[], text: string) => void;
   /** Confluence 기획서 1건 — 기존 4단계 파이프라인 */
   onRunPipeline: (url: string) => void;
+  /** 기능 분석 모드 — codex·게이트·TC 설계 없이 Claude가 바로 분석만 (2026-08-19) */
+  onAnalyze: (urls: string[], text: string) => void;
   /** 채팅 스트리밍·파이프라인·흡수 중 */
   busy: boolean;
   /** 버튼에 표시할 진행 문구 (예: "⓪① Codex 분석 중…") */
   busyLabel?: string;
 }) {
   const [raw, setRaw] = useState('');
+  /** 입력 모드 — 'design'(기존: TC 설계) · 'analyze'(신규: 기능 분석만). 기본 design → 기존과 동일 */
+  const [mode, setMode] = useState<'design' | 'analyze'>('design');
 
   /** 줄 단위 분해 + URL/텍스트 자동 구분 — 감지 칩과 전송 페이로드에 함께 쓴다 */
   const parsed = useMemo(() => {
@@ -81,10 +86,14 @@ export default function SourceInput({
   function submit() {
     if (!canSubmit) return;
 
-    // 기획서 1건 단독이면 기존 파이프라인, 그 외는 ⓪①(Codex) → ② 게이트
-    if (parsed.urls.length === 1 && WIKI_RE.test(parsed.urls[0]) && !parsed.freeText) {
+    if (mode === 'analyze') {
+      // 기능 분석 — codex·게이트·TC 설계 없이 Claude가 바로 분석만. 기존 경로와 완전히 분리.
+      onAnalyze(parsed.urls, parsed.freeText);
+    } else if (parsed.urls.length === 1 && WIKI_RE.test(parsed.urls[0]) && !parsed.freeText) {
+      // (기존) 기획서 1건 단독 → 4단계 파이프라인
       onRunPipeline(parsed.urls[0]);
     } else {
+      // (기존) 그 외 → ⓪①(Codex) 흡수·교차분석 → ② 게이트
       onAbsorb(parsed.urls, parsed.freeText);
     }
     // #2: 제출 후 입력을 비우지 않는다 — 어떤 티켓·작업을 진행 중인지 계속 보이게 유지한다.
@@ -113,6 +122,38 @@ export default function SourceInput({
           </span>
         )}
       </div>
+
+      {/* 모드 토글 — TC 설계(기존) vs 기능 분석(Claude 직행). 기본 design이라 기존과 동일 동작 */}
+      <div className="inline-flex p-[3px] gap-[3px] rounded-[9px] border border-[var(--line-2)] bg-[var(--inset)] mb-2">
+        {(['design', 'analyze'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            disabled={busy}
+            className={
+              'px-3 py-1.5 rounded-[6px] text-[11.5px] font-[640] transition-colors disabled:opacity-50 ' +
+              (mode === m
+                ? 'bg-[var(--panel)] text-[var(--tx-1)] shadow-sm'
+                : 'text-[var(--tx-3)] hover:text-[var(--tx-2)]')
+            }
+          >
+            {m === 'design' ? '🧪 TC 분석·설계' : '🔍 기능 분석'}
+          </button>
+        ))}
+      </div>
+      {mode === 'analyze' && (
+        <div
+          className="flex gap-2 items-start text-[11px] px-2.5 py-2 mb-2.5 rounded-[8px]
+                     border border-[color-mix(in_srgb,var(--ok)_28%,transparent)]
+                     bg-[color-mix(in_srgb,var(--ok)_9%,transparent)] text-[var(--tx-2)]"
+        >
+          <span className="text-[var(--ok)] font-bold shrink-0">🔍</span>
+          <span>
+            <b>기능 분석 모드</b> — Claude가 <b>바로 분석만</b> 합니다. codex 교차분석·확인 게이트·TC
+            설계 <b>없음</b>. TC가 필요하면 <b>TC 분석·설계</b>로 바꾸세요.
+          </span>
+        </div>
+      )}
 
       {/*
         한 칸 통합 입력. focus-within으로 테두리를 강조해 "여기가 입력"임을 분명히 한다.
@@ -179,7 +220,11 @@ export default function SourceInput({
                      text-[10.5px] font-semibold hover:bg-[var(--accent)]
                      disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {busy ? (busyLabel ?? '진행 중…') : '▶ 일괄 읽기'}
+          {busy
+            ? (busyLabel ?? '진행 중…')
+            : mode === 'analyze'
+              ? '🔍 기능 분석'
+              : '▶ 일괄 읽기 → TC 설계'}
         </button>
       </div>
     </div>

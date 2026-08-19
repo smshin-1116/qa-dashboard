@@ -192,6 +192,9 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
    */
   const [retry, setRetry] = useState<{ label: string; run: () => Promise<unknown> } | null>(null);
 
+  /** 후속 입력 — 대화 세션에서 추가 요구사항(더 분석/이 부분만/TC 전환)을 이어서 보낸다 */
+  const [followUp, setFollowUp] = useState('');
+
   // 세션을 열면 저장된 계약을 복원한다 — 게이트가 새로고침에 살아남는 이유
   useEffect(() => {
     const id = activeSession?.id;
@@ -293,6 +296,51 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           reason: e instanceof Error ? e.message : '흡수 요청 실패',
         });
       }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSession, activeModel, workspaceKey, createSession, renameSession],
+  );
+
+  /**
+   * 기능 분석 (신규 모드) — codex·게이트·TC 설계 없이 **Claude가 바로 분석만** 한다.
+   *
+   * "분석만 원했는데 TC까지 만드는" 낭비를 없애기 위한 별도 경로다 (2026-08-19).
+   * 기존 handleAbsorb(흡수·게이트)·파이프라인은 손대지 않는다 — 이건 순수 추가 경로.
+   */
+  const handleAnalyze = useCallback(
+    async (urls: string[], text: string) => {
+      let session = activeSession;
+      if (!session) session = await createSession(activeModel, workspaceKey);
+
+      const shortTitle = (s: string, max = 28) => {
+        const t = s.replace(/\s+/g, ' ').trim();
+        return t.length > max ? `${t.slice(0, max)}…` : t;
+      };
+      const ticketKey = urls
+        .map((u) => u.match(/\/browse\/([A-Z][A-Z0-9]+-\d+)/)?.[1])
+        .find(Boolean);
+      const title = ticketKey ? `${ticketKey} 기능 분석` : shortTitle(text || urls[0] || '기능 분석');
+      void renameSession(session.id, title);
+
+      // codex·게이트를 건너뛴다 — 진행 띠에 "생략"으로 표시(설계 모드와 구분)
+      setAbsorb({ status: 'skipped', contract: null, reason: null });
+
+      const msg = [
+        '[기능 분석 — 소스를 읽고 분석만. ⚠️ TC(테스트 케이스) 표는 절대 만들지 말 것]',
+        ...(urls.length ? [urls.join('\n')] : []),
+        ...(text ? [text] : []),
+        '',
+        '위 소스(티켓/기획 등)를 읽고 아래를 정리해줘. **TC 설계·11컬럼 표는 만들지 마.**',
+        '- 기능 요약 · 핵심 동작 흐름',
+        '- 요구사항 · 수용 기준',
+        '- 주요 엣지케이스 · 리스크',
+        '- 불명확하거나 확인이 필요한 지점',
+      ].join('\n');
+
+      // phase 미지정 — 진행 띠의 ③~⑥(TC 설계)를 켜지 않는다(이건 분석이지 설계가 아니다)
+      await handleSend(msg, [], {
+        displayMessage: `🔍 ${title} — 기능 분석 (codex·TC 설계 없음)`,
+      });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeSession, activeModel, workspaceKey, createSession, renameSession],
@@ -933,6 +981,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                   <SourceInput
                     onAbsorb={(urls, text) => void handleAbsorb(urls, text)}
                     onRunPipeline={(url) => setPipelineRun((p) => ({ url, seq: (p?.seq ?? 0) + 1 }))}
+                    onAnalyze={(urls, text) => void handleAnalyze(urls, text)}
                     busy={isStreaming || pipelineRunning || absorb.status === 'running'}
                     busyLabel={absorb.status === 'running' ? '⓪① Codex 분석 중…' : undefined}
                   />
@@ -1032,16 +1081,61 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
 
                   {/* ── 분석 대화 — 응답이 흐르는 곳 (입력은 상단 카드) ── */}
                   {((activeSession?.messages.length ?? 0) > 0 || isStreaming) && (
-                    <div className="h-[46vh] flex flex-col rounded-[13px] border border-[var(--line)] overflow-hidden">
-                      <ChatArea
-                        session={activeSession}
-                        isStreaming={isStreaming && streamingSessionId === activeSession?.id}
-                        streamingContent={streamingContent}
-                        toolStatus={toolStatus}
-                        hasTcResult={tcAvailable}
-                        onDownloadXlsx={handleDownloadXlsx}
-                      />
-                    </div>
+                    <>
+                      <div className="h-[46vh] flex flex-col rounded-[13px] border border-[var(--line)] overflow-hidden">
+                        <ChatArea
+                          session={activeSession}
+                          isStreaming={isStreaming && streamingSessionId === activeSession?.id}
+                          streamingContent={streamingContent}
+                          toolStatus={toolStatus}
+                          hasTcResult={tcAvailable}
+                          onDownloadXlsx={handleDownloadXlsx}
+                        />
+                      </div>
+
+                      {/*
+                        #후속 입력 (2026-08-19) — 대화가 생긴 뒤부터 추가 요구사항을 이어서 보낸다.
+                        기존 handleSend를 그대로 재사용(같은 세션 --resume, 맥락 유지). 응답 중엔 비활성.
+                      */}
+                      <div className="flex items-end gap-2 rounded-[13px] border border-[var(--line)] bg-[var(--panel)] p-2.5">
+                        <textarea
+                          value={followUp}
+                          onChange={(e) => setFollowUp(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              const t = followUp.trim();
+                              if (t && !isStreaming) {
+                                setFollowUp('');
+                                void handleSend(t, []);
+                              }
+                            }
+                          }}
+                          disabled={isStreaming}
+                          rows={1}
+                          placeholder="추가 분석·요구사항 입력 — 예) 동시성 리스크만 더 파줘 / 이 부분 TC로 만들어줘  (Enter 전송·Shift+Enter 줄바꿈)"
+                          className="flex-1 min-w-0 bg-[var(--inset)] border border-[var(--line-2)] rounded-[9px]
+                                     px-3 py-2 text-[12px] leading-[1.6] text-[var(--tx-1)] resize-none
+                                     outline-none focus:border-[var(--accent)]
+                                     placeholder:text-[var(--tx-4)] disabled:opacity-50 max-h-[120px]"
+                        />
+                        <button
+                          onClick={() => {
+                            const t = followUp.trim();
+                            if (t && !isStreaming) {
+                              setFollowUp('');
+                              void handleSend(t, []);
+                            }
+                          }}
+                          disabled={isStreaming || !followUp.trim()}
+                          className="shrink-0 px-3.5 py-2 rounded-[8px] border border-[var(--accent-deep)] bg-[var(--accent-deep)]
+                                     text-white text-[11.5px] font-semibold hover:bg-[var(--accent)]
+                                     disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {isStreaming ? '응답 중…' : '보내기'}
+                        </button>
+                      </div>
+                    </>
                   )}
 
                   {/* ── ③~⑥ TC 카드 + 작업 종료 — TC 없으면 null ─────── */}
