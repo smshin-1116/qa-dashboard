@@ -5,6 +5,9 @@ import { tmpdir } from 'os';
 import { NextRequest } from 'next/server';
 import type { Attachment, AgentMode } from '@/types/session';
 import { META_PREFIX, TOOL_PREFIX } from '@/constants/streamProtocol';
+// 프로젝트 프로파일 기반 프롬프트 조각 (도메인 색이 짙은 부분만 교체 — 나머지는 그대로).
+// activeProfile이 기본 roouty라, 이 도입만으로는 동작 무변경(골든 스냅샷으로 검증).
+import { specGuidanceBlock, tcExampleRow, writingExampleRows } from '@/lib/prompts/tcPrompts';
 
 const TOOL_LABELS: Record<string, string> = {
   // Jira
@@ -104,10 +107,7 @@ const GITHUB_REPO_BACKEND = process.env.GITHUB_REPO_BACKEND ?? null;
 const GITHUB_REPO_FRONTEND = process.env.GITHUB_REPO_FRONTEND ?? null;
 
 const BASE_CONTEXT = `
-## Roouty 명세 우선 참고 (중요)
-- Roouty 제품 기능(자동배차, 배차계획, 모니터링, 납품처관리, 인수증, 설정 등)에 대한 작업이면, 답을 만들기 전에 **반드시 \`roouty-spec\` 스킬을 먼저 실행**하여 관련 화면 명세를 ground truth로 로드하세요.
-- 명세의 권한·검색 필드·목록 컬럼·실패/예외 규칙을 근거로 삼고, 거기에 Jira(티켓/AC)·Confluence(기획)·Figma(화면)를 MCP로 대조해 실제 루티 서비스에 밀착된 산출물을 만드세요.
-- 산출물에는 참고한 근거(명세 문서명 + 티켓 키 등)를 명시하고, 명세에 없거나 모순되는 부분은 "명세 미정의"로 표시하세요.
+${specGuidanceBlock()}
 
 ## Atlassian 설정${ATLASSIAN_CLOUD_ID ? `\n- Jira/Confluence cloudId: ${ATLASSIAN_CLOUD_ID}\n- MCP Atlassian 도구 호출 시 cloudId는 항상 "${ATLASSIAN_CLOUD_ID}"를 사용합니다.` : ''}
 
@@ -124,7 +124,7 @@ const TC_TABLE_FORMAT = `## TC 출력 형식 (마크다운 테이블, 반드시 
 
 | TC-ID | 대분류 | 중분류 | 소분류 | 검증단계 | 전제조건 | 테스트 스텝 | 기대결과 | 플랫폼 | 결과 | 비고 |
 |-------|--------|--------|--------|---------|---------|-----------|---------|-------|------|------|
-| TC-001 | 배차 관리 | 자동 최적화 배차 | 배차 실행 | 정상 | 로그인 상태, 주문 3건 등록 | 1. 배차 실행 버튼 클릭 2. 배차 결과 화면 확인 | 주문 3건이 배차 완료 상태로 표시됨 | PC(Web) | Not Test | |
+${tcExampleRow()}
 
 ### 컬럼 규칙
 - **TC-ID**: 반드시 \`TC-001\`, \`TC-002\` … 형식 (TC- 접두어 + 3자리 zero-padding). 숫자만 쓰거나 다른 접두어(MV- 등)를 쓰지 말 것
@@ -193,9 +193,7 @@ ${TC_TABLE_FORMAT}
 | 규칙 | 위반 예시 | 올바른 예시 |
 |------|----------|------------|
 | 1 TC = 1 검증 포인트 | "A되고 B되는지 확인" | TC 분리 |
-| 추상 표현 금지 | "정상 동작하는지 확인" | "배차 실행 버튼 클릭 시 배차 결과 화면으로 이동하는지 확인" |
-| 테스트 스텝 3요소 필수 | "배차하면 확인" | "[로그인 상태, 주문 3건]에서 [배차 실행]하면 [주문 3건 배차 완료 표시]되는지 확인" |
-| 경계값 수치 필수 | "주문이 없을 때" | "주문 0건인 상태에서 배차 실행 시 '배차할 주문이 없습니다' 메시지가 표시되는지 확인" |
+${writingExampleRows()}
 | 플랫폼 스텝 중복 금지 | "PC에서 ~하면" (스텝에) | 플랫폼은 플랫폼 컬럼에만 명시 |
 
 ## 검증단계 분포 (TC 완성 후 반드시 집계)

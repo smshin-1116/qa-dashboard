@@ -47,6 +47,20 @@ export interface ProjectProfile {
    */
   specSkill: string | null;
 
+  /**
+   * 시스템 프롬프트(BASE_CONTEXT) 맨 앞 "명세 우선 참고" 섹션 전문.
+   * 도메인 색이 가장 짙게 배는 곳 — 제품 이름·명세 스킬·"실제 서비스" 표현이 들어간다.
+   * ⚠️ roouty 값은 기존 리터럴(2026-08-13 버전 BASE_CONTEXT 107~110행)과 바이트 동일해야 함.
+   */
+  specGuidanceBlock: string;
+
+  /**
+   * 파이프라인(기획서 1건 → 4단계) 전용 "명세 우선 참고" 지시문.
+   * chat용 specGuidanceBlock과 문구가 조금 다르다(파이프라인은 Confluence·Jira AC 대조 강조).
+   * ⚠️ roouty 값은 기존 pipeline/run/route.ts의 ROOUTY_SPEC_DIRECTIVE와 바이트 동일해야 함.
+   */
+  pipelineSpecDirective: string;
+
   /** stage(비운영) 환경 — TC 수행이 접속하는 곳. read-only 원칙은 코드가 강제한다. */
   stage: {
     /** 화면 base (예: https://tms-stage.roouty.io) */
@@ -86,6 +100,14 @@ export const rooutyProfile: ProjectProfile = {
   id: 'roouty',
   productName: 'Roouty',
   specSkill: 'roouty-spec',
+  specGuidanceBlock: `## Roouty 명세 우선 참고 (중요)
+- Roouty 제품 기능(자동배차, 배차계획, 모니터링, 납품처관리, 인수증, 설정 등)에 대한 작업이면, 답을 만들기 전에 **반드시 \`roouty-spec\` 스킬을 먼저 실행**하여 관련 화면 명세를 ground truth로 로드하세요.
+- 명세의 권한·검색 필드·목록 컬럼·실패/예외 규칙을 근거로 삼고, 거기에 Jira(티켓/AC)·Confluence(기획)·Figma(화면)를 MCP로 대조해 실제 루티 서비스에 밀착된 산출물을 만드세요.
+- 산출물에는 참고한 근거(명세 문서명 + 티켓 키 등)를 명시하고, 명세에 없거나 모순되는 부분은 "명세 미정의"로 표시하세요.`,
+  pipelineSpecDirective: `## Roouty 명세 우선 참고 (중요)
+- 이 작업은 Roouty 제품 기능에 대한 것입니다. 답을 만들기 전에 **반드시 \`roouty-spec\` 스킬을 먼저 실행**하여 관련 화면 명세를 ground truth로 로드하세요.
+- 명세의 권한·검색 필드·목록 컬럼·실패/예외 규칙을 근거로 삼고, 거기에 Confluence 기획·Jira AC를 대조해 실제 루티 서비스에 밀착된 산출물을 만드세요.
+- 산출물에는 참고한 근거(명세 문서명 + 티켓 키 등)를 명시하고, 명세에 없거나 모순되는 부분은 "명세 미정의"로 표시하세요.`,
   stage: {
     webBaseUrl: 'https://tms-stage.roouty.io',
     apiBaseUrl: 'https://tms-api-stage.roouty.io',
@@ -118,6 +140,14 @@ export const genericProfile: ProjectProfile = {
   id: 'generic',
   productName: '대상 서비스',
   specSkill: null, // 명세 스킬 없음 — 붙여넣은 기획서·소스만 ground truth
+  specGuidanceBlock: `## 명세·기획 우선 참고 (중요)
+- 붙여넣은 기획서·티켓·문서를 ground truth로 삼아 분석하세요. 별도 명세 스킬은 사용하지 않습니다.
+- Jira(티켓/AC)·Confluence(기획)·Figma(화면)를 MCP로 대조해 대상 서비스에 밀착된 산출물을 만드세요.
+- 산출물에는 참고한 근거(문서명 + 티켓 키 등)를 명시하고, 근거에 없거나 모순되는 부분은 "명세 미정의"로 표시하세요.`,
+  pipelineSpecDirective: `## 명세·기획 우선 참고 (중요)
+- 붙여넣은 기획서·티켓을 ground truth로 삼아 분석하세요. 별도 명세 스킬은 사용하지 않습니다.
+- 요구·권한·예외 규칙을 근거로 삼고, Confluence 기획·Jira AC를 대조해 대상 서비스에 밀착된 산출물을 만드세요.
+- 산출물에는 참고한 근거(문서명 + 티켓 키 등)를 명시하고, 근거에 없거나 모순되는 부분은 "명세 미정의"로 표시하세요.`,
   stage: null, // 수행 환경은 프로젝트별로 .env + 프로파일에서 지정
   roles: [{ role: 'USER', label: 'USER(일반 사용자)' }],
   tcExampleRow:
