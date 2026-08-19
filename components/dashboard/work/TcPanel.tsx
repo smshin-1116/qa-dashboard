@@ -85,8 +85,19 @@ export interface Tc {
   note: string | null;
   testRef: string[];
   handedOffAt: string | null;
+  /** Fail로 등록한 Jira 버그 키 — 있으면 재등록 안 함, 행에 배지 표시 */
+  bugTicket: string | null;
   /** 11컬럼 밖의 값 (`계정 역할` 등) — 티켓마다 달라 컬럼을 고정하지 않았다 */
   extra: Record<string, string> | null;
+}
+
+/** [버그 등록] 미리보기 초안 — Fail TC 1건당 1건 */
+interface BugDraft {
+  tcId: number;
+  localId: string;
+  summary: string;
+  description: string;
+  selected: boolean;
 }
 
 interface Crosscheck {
@@ -140,7 +151,8 @@ export default function TcPanel({
   /** 저장이 끝났을 때 바뀌는 값 — 목록을 다시 읽는 트리거 */
   refreshKey?: number;
   onDownloadXlsx: () => void;
-  /** 선택 TC를 Claude(Playwright)로 자동 수행 — 결과는 부모가 파싱해 기입한다 */
+  /** 선택 TC를 Claude(Playwright)로 자동 수행 — 결과는 부모가 파싱해 기입한다.
+   *  opts.condition이 있으면(재수행) 프롬프트 앞에 [재수행 조건]으로 주입된다. */
   onRunTc?: (
     tcs: Array<{
       localId: string;
@@ -150,6 +162,7 @@ export default function TcPanel({
       steps: string | null;
       expected: string | null;
     }>,
+    opts?: { condition?: string },
   ) => Promise<void>;
   /** 수행/스트리밍 중 — 버튼 비활성 */
   running?: boolean;
@@ -167,6 +180,27 @@ export default function TcPanel({
   const [closing, setClosing] = useState<ClosePreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<{ tone: Tone; text: string } | null>(null);
+  /** 버그 등록 미리보기 모달 — Fail TC 초안 + 보드 */
+  const [bugModal, setBugModal] = useState<{ drafts: BugDraft[]; project: string } | null>(null);
+  /** 재수행 모달 — 옵션 기능. 대상(직접 선택) + 조건 */
+  const [rerun, setRerun] = useState<{ targets: Set<number>; condition: string } | null>(null);
+  /** env에 설정된 QA 역할 (계정 칩용, 이름만) */
+  const [qaRoles, setQaRoles] = useState<Array<{ role: string; label: string }>>([]);
+  /** 내가 저장한 재수행 조건 (localStorage) */
+  const [savedConds, setSavedConds] = useState<string[]>([]);
+
+  useEffect(() => {
+    void fetch('/api/workspace/qa-accounts')
+      .then((r) => r.json() as Promise<{ roles?: Array<{ role: string; label: string }> }>)
+      .then((b) => setQaRoles(b.roles ?? []))
+      .catch(() => {});
+    try {
+      const s = localStorage.getItem('qa-rerun-conditions');
+      if (s) setSavedConds(JSON.parse(s) as string[]);
+    } catch {
+      /* localStorage 접근 실패 무시 */
+    }
+  }, []);
 
   const load = useCallback(async () => {
     if (!sessionId) return;
@@ -214,6 +248,123 @@ export default function TcPanel({
     setFlash({ tone, text });
     setTimeout(() => setFlash(null), 7000);
   };
+
+  /** Fail TC(미등록)로 버그 초안을 만들어 미리보기 모달을 연다 — TC당 1건 */
+  function openBugModal() {
+    const workTitle = session?.title ?? '';
+    const drafts: BugDraft[] = tcs
+      .filter((t) => t.result === 'Fail' && !t.bugTicket)
+      .map((t) => {
+        const area = t.subCategory || t.category || 'QA';
+        const symptom = (t.note || t.expected || t.localId).replace(/\s+/g, ' ').trim();
+        const summary = `[${area}] ${symptom}`.slice(0, 80);
+        const description = [
+          '## 재현 경로',
+          t.precondition ? `전제조건: ${t.precondition}` : '',
+          t.steps || '',
+          '',
+          '## 실제 결과',
+          t.note || '(수행 사유 미기재 — 수행 로그 확인 필요)',
+          '',
+          '## 기대 결과',
+          t.expected || '(기대결과 미기재)',
+          '',
+          '## 참고',
+          `- TC-ID: ${t.localId}`,
+          '- 검증 환경: stage (tms-stage.roouty.io)',
+          workTitle ? `- 작업: ${workTitle}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+        return { tcId: t.id, localId: t.localId, summary, description, selected: true };
+      });
+    if (drafts.length === 0) {
+      say('info', '등록할 Fail이 없습니다 (이미 등록됐거나 Fail 없음)');
+      return;
+    }
+    setBugModal({ drafts, project: 'DV' });
+  }
+
+  /** 미리보기에서 선택한 초안을 Jira 버그로 등록하고, 성공 건은 TC에 키를 박아 배지를 띄운다 */
+  async function registerBugs() {
+    if (!sessionId || !bugModal) return;
+    const chosen = bugModal.drafts.filter((d) => d.selected);
+    if (chosen.length === 0) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/workspace/tc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create-bugs',
+          sessionId,
+          project: bugModal.project,
+          drafts: chosen.map((d) => ({ tcId: d.tcId, localId: d.localId, summary: d.summary, description: d.description })),
+        }),
+      });
+      const body = (await res.json()) as {
+        results: Array<{ localId: string; ok: boolean; key?: string; error?: string }>;
+      };
+      const okd = (body.results ?? []).filter((r) => r.ok);
+      const failed = (body.results ?? []).filter((r) => !r.ok);
+      if (failed.length)
+        say('crit', `등록 실패 ${failed.length}건 — ${failed.map((f) => `${f.localId}: ${f.error}`).join(' / ').slice(0, 200)}`);
+      if (okd.length) say('ok', `버그 ${okd.length}건 등록 — ${okd.map((r) => r.key).join(' · ')}`);
+      setBugModal(null);
+      await load(); // 배지 반영
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── 재수행 (옵션) — 대상 직접 선택 + 조건 붙여 다시 수행 ────────────
+  function openRerun() {
+    // 기본 선택 = 표에서 체크한 것(picked). 없으면 빈 선택 — 모달에서 직접 고른다(자동 선택 없음).
+    setRerun({ targets: new Set(picked), condition: '' });
+  }
+  /** 칩 클릭 → 조건 입력창에 템플릿을 이어붙인다 */
+  function appendCond(text: string) {
+    setRerun((r) => (r ? { ...r, condition: r.condition.trim() ? `${r.condition.trim()}\n${text}` : text } : r));
+  }
+  function saveCond() {
+    const c = rerun?.condition.trim();
+    if (!c) return;
+    const next = Array.from(new Set([c, ...savedConds])).slice(0, 8);
+    setSavedConds(next);
+    try {
+      localStorage.setItem('qa-rerun-conditions', JSON.stringify(next));
+    } catch {
+      /* 무시 */
+    }
+    say('ok', '조건을 저장했습니다 — 다음부터 칩으로 뜹니다');
+  }
+  function removeSaved(c: string) {
+    const next = savedConds.filter((x) => x !== c);
+    setSavedConds(next);
+    try {
+      localStorage.setItem('qa-rerun-conditions', JSON.stringify(next));
+    } catch {
+      /* 무시 */
+    }
+  }
+  async function runRerun() {
+    if (!onRunTc || !rerun) return;
+    const targets = tcs.filter((t) => rerun.targets.has(t.id));
+    if (targets.length === 0) return;
+    const cond = rerun.condition.trim();
+    setRerun(null);
+    await onRunTc(
+      targets.map((t) => ({
+        localId: t.localId,
+        subCategory: t.subCategory,
+        phase: t.phase,
+        precondition: t.precondition,
+        steps: t.steps,
+        expected: t.expected,
+      })),
+      { condition: cond || undefined },
+    );
+  }
 
   /** 선택(picked) 또는 전체 TC를 자동 수행에 넘긴다 */
   function runTc(scope: 'picked' | 'all') {
@@ -436,7 +587,20 @@ export default function TcPanel({
                 >
                   전체 수행
                 </Btn>
+                <Btn
+                  onClick={openRerun}
+                  disabled={running || tcs.length === 0}
+                  title="필요할 때만 — 대상을 직접 고르고 조건(계정·데이터·재로그인)을 붙여 다시 수행"
+                >
+                  ⟳ 재수행
+                </Btn>
               </>
+            )}
+            {/* Fail(미등록)이 있으면 버그 등록 창구 노출 */}
+            {tcs.some((t) => t.result === 'Fail' && !t.bugTicket) && (
+              <Btn onClick={openBugModal} disabled={busy}>
+                ⚠ Fail {tcs.filter((t) => t.result === 'Fail' && !t.bugTicket).length}건 버그 등록
+              </Btn>
             )}
             <Btn onClick={onDownloadXlsx}>XLSX</Btn>
             <Btn onClick={() => void openClose()} disabled={busy}>
@@ -585,6 +749,18 @@ export default function TcPanel({
                           </option>
                         ))}
                       </select>
+                      {t.bugTicket && (
+                        <a
+                          href={`https://wemeet2025.atlassian.net/browse/${t.bugTicket}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="등록된 버그 티켓 열기"
+                          className="block mt-0.5 font-mono text-[9px] font-bold hover:underline"
+                          style={{ color: C.crit }}
+                        >
+                          🐞 {t.bugTicket}
+                        </a>
+                      )}
                     </Td>
                     <Td>
                       {t.handedOffAt ? (
@@ -692,6 +868,354 @@ export default function TcPanel({
           onConfirm={() => void confirmHandoff()}
         />
       )}
+
+      {bugModal && (
+        <BugModal
+          drafts={bugModal.drafts}
+          project={bugModal.project}
+          busy={busy}
+          onToggle={(i) =>
+            setBugModal((m) =>
+              m ? { ...m, drafts: m.drafts.map((d, idx) => (idx === i ? { ...d, selected: !d.selected } : d)) } : m,
+            )
+          }
+          onEdit={(i, field, val) =>
+            setBugModal((m) =>
+              m ? { ...m, drafts: m.drafts.map((d, idx) => (idx === i ? { ...d, [field]: val } : d)) } : m,
+            )
+          }
+          onProject={(p) => setBugModal((m) => (m ? { ...m, project: p } : m))}
+          onCancel={() => setBugModal(null)}
+          onConfirm={() => void registerBugs()}
+        />
+      )}
+
+      {rerun && (
+        <RerunModal
+          tcs={tcs}
+          targets={rerun.targets}
+          condition={rerun.condition}
+          qaRoles={qaRoles}
+          savedConds={savedConds}
+          running={running}
+          onToggle={(id) =>
+            setRerun((r) => {
+              if (!r) return r;
+              const t = new Set(r.targets);
+              if (t.has(id)) t.delete(id);
+              else t.add(id);
+              return { ...r, targets: t };
+            })
+          }
+          onCond={(v) => setRerun((r) => (r ? { ...r, condition: v } : r))}
+          onAppend={appendCond}
+          onSave={saveCond}
+          onRemoveSaved={removeSaved}
+          onCancel={() => setRerun(null)}
+          onConfirm={() => void runRerun()}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Fail 버그 등록 미리보기 모달 ─────────────────────────────────────
+// 외부 쓰기 전 마지막 게이트 — 사람이 선택·편집·보드 확인 후 [등록]을 눌러야 Jira에 쓴다.
+function BugModal({
+  drafts,
+  project,
+  busy,
+  onToggle,
+  onEdit,
+  onProject,
+  onCancel,
+  onConfirm,
+}: {
+  drafts: BugDraft[];
+  project: string;
+  busy: boolean;
+  onToggle: (i: number) => void;
+  onEdit: (i: number, field: 'summary' | 'description', val: string) => void;
+  onProject: (p: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const chosen = drafts.filter((d) => d.selected).length;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'color-mix(in srgb, #000 55%, transparent)' }}
+    >
+      <div
+        className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-[13px] border overflow-hidden"
+        style={{ background: C.panel, borderColor: C.line }}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: C.line }}>
+          <div className="text-[13px] font-[640]" style={{ color: C.tx1 }}>
+            Fail 버그 등록 — 미리보기 (TC당 1건)
+          </div>
+          <div className="flex items-center gap-2 text-[11px]" style={{ color: C.tx3 }}>
+            보드
+            <select
+              value={project}
+              onChange={(e) => onProject(e.target.value)}
+              className="rounded-[6px] px-2 py-1 text-[11px] font-mono border outline-none"
+              style={{ background: C.inset, borderColor: C.line2, color: C.tx1 }}
+            >
+              {['DV', 'QI', 'RV'].map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5">
+          {drafts.map((d, i) => (
+            <div key={d.tcId} className="rounded-[9px] border p-2.5" style={{ borderColor: C.line2, background: C.inset }}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <input
+                  type="checkbox"
+                  checked={d.selected}
+                  onChange={() => onToggle(i)}
+                  aria-label={`${d.localId} 등록`}
+                />
+                <span className="font-mono text-[10px] font-bold" style={{ color: C.crit }}>
+                  {d.localId}
+                </span>
+                <input
+                  value={d.summary}
+                  onChange={(e) => onEdit(i, 'summary', e.target.value)}
+                  className="flex-1 min-w-0 bg-transparent border-b outline-none text-[12px] font-[550] py-0.5"
+                  style={{ color: C.tx1, borderColor: C.line2 }}
+                />
+              </div>
+              <textarea
+                value={d.description}
+                onChange={(e) => onEdit(i, 'description', e.target.value)}
+                rows={5}
+                className="w-full rounded-[6px] px-2 py-1.5 text-[11px] leading-[1.6] font-mono border outline-none resize-y"
+                style={{ background: C.panel, borderColor: C.line2, color: C.tx2 }}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: C.line }}>
+          <span className="text-[11px]" style={{ color: C.tx3 }}>
+            선택 {chosen} / {drafts.length}건 · {project} 보드에 버그로 등록됩니다
+          </span>
+          <div className="flex gap-1.5">
+            <Btn onClick={onCancel} disabled={busy}>
+              취소
+            </Btn>
+            <Btn pri onClick={onConfirm} disabled={busy || chosen === 0}>
+              {busy ? '등록 중…' : `등록 ${chosen}건`}
+            </Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 재수행 모달 (옵션) — 대상 직접 선택 + 조건(계정 자동칩·저장 조건) ──────
+function ChipBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-[10px] font-semibold px-2 py-[3px] rounded-full border border-dashed"
+      style={{ color: C.accent, borderColor: `color-mix(in srgb, ${C.accent} 40%, transparent)`, background: 'transparent' }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RerunModal({
+  tcs,
+  targets,
+  condition,
+  qaRoles,
+  savedConds,
+  running,
+  onToggle,
+  onCond,
+  onAppend,
+  onSave,
+  onRemoveSaved,
+  onCancel,
+  onConfirm,
+}: {
+  tcs: Tc[];
+  targets: Set<number>;
+  condition: string;
+  qaRoles: Array<{ role: string; label: string }>;
+  savedConds: string[];
+  running: boolean;
+  onToggle: (id: number) => void;
+  onCond: (v: string) => void;
+  onAppend: (t: string) => void;
+  onSave: () => void;
+  onRemoveSaved: (c: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const n = targets.size;
+  const acctTemplate = (r: { role: string; label: string }) =>
+    `프로필을 로그아웃하고 ${r.label} 계정(env QA_${r.role}_*)으로 재로그인한 뒤, 위에서 고른 TC를 다시 수행해줘. 직전 수행이 다른 계정으로 돌았을 수 있다.`;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'color-mix(in srgb, #000 55%, transparent)' }}
+    >
+      <div
+        className="w-full max-w-2xl max-h-[86vh] flex flex-col rounded-[13px] border overflow-hidden"
+        style={{ background: C.panel, borderColor: C.line }}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: C.line }}>
+          <div className="text-[13px] font-[640]" style={{ color: C.tx1 }}>
+            ⟳ 재수행 — 미리보기
+          </div>
+          <div className="text-[11px]" style={{ color: C.tx3 }}>
+            필요할 때만 · 대상·조건 직접 선택
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+          {/* 대상 선택 — 자동 선택 없음 */}
+          <div>
+            <div className="font-mono text-[9.5px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.tx4 }}>
+              재수행할 TC — 직접 선택 (자동 선택 없음)
+            </div>
+            <div
+              className="flex flex-col gap-0.5 max-h-[28vh] overflow-y-auto rounded-[9px] border p-1.5"
+              style={{ borderColor: C.line2, background: C.inset }}
+            >
+              {tcs.map((t) => (
+                <label
+                  key={t.id}
+                  className="flex items-center gap-2 px-1.5 py-1 rounded-[6px] cursor-pointer"
+                  style={{ background: targets.has(t.id) ? 'color-mix(in srgb, var(--accent) 9%, transparent)' : 'transparent' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={targets.has(t.id)}
+                    onChange={() => onToggle(t.id)}
+                    style={{ accentColor: C.accentDeep }}
+                  />
+                  <span className="font-mono text-[10px] font-bold" style={{ color: C.accent }}>
+                    {t.localId}
+                  </span>
+                  <Pill tone={RESULT_TONE[t.result]}>{t.result}</Pill>
+                  <span className="text-[10.5px] truncate" style={{ color: C.tx3 }}>
+                    {t.subCategory || t.category || ''}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* 조건 입력 */}
+          <div>
+            <div className="font-mono text-[9.5px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.tx4 }}>
+              조건 입력 — 칩으로 채우고 그 위에서 수정
+            </div>
+            {/* 계정 자동칩 (env 감지) */}
+            <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+              <span className="text-[10px] font-bold" style={{ color: C.tx3 }}>
+                계정 변경 →
+              </span>
+              {qaRoles.length ? (
+                qaRoles.map((r) => (
+                  <button
+                    key={r.role}
+                    onClick={() => onAppend(acctTemplate(r))}
+                    className="font-mono text-[10px] font-bold px-2 py-[3px] rounded-full border"
+                    style={{
+                      color: C.info,
+                      borderColor: `color-mix(in srgb, ${C.info} 42%, transparent)`,
+                      background: `color-mix(in srgb, ${C.info} 9%, transparent)`,
+                    }}
+                    title={r.label}
+                  >
+                    {r.role}
+                  </button>
+                ))
+              ) : (
+                <span className="text-[9.5px]" style={{ color: C.tx4 }}>
+                  설정된 QA 계정 없음 (.env.local의 QA_*_EMAIL)
+                </span>
+              )}
+              <span className="text-[9px]" style={{ color: C.tx4 }}>
+                env 자동 감지
+              </span>
+            </div>
+            {/* 기타 + 내 조건 저장 */}
+            <div className="flex items-center gap-1.5 flex-wrap mb-2">
+              <ChipBtn onClick={() => onAppend('[주문 3건이 배차 대기]인 상태로 데이터를 세팅한 뒤 수행해줘.')}>
+                데이터 세팅
+              </ChipBtn>
+              <ChipBtn onClick={() => onAppend('현재 세션을 로그아웃하고 같은 계정으로 다시 로그인한 뒤 수행해줘.')}>
+                재로그인
+              </ChipBtn>
+              {savedConds.length > 0 && <span className="w-px h-3.5" style={{ background: C.line }} />}
+              {savedConds.map((c) => (
+                <span
+                  key={c}
+                  className="inline-flex items-center gap-1 text-[10px] px-2 py-[3px] rounded-full border"
+                  style={{ color: C.tx2, borderColor: C.line2, background: C.inset }}
+                >
+                  <button onClick={() => onAppend(c)} className="max-w-[150px] truncate" title={c}>
+                    {c}
+                  </button>
+                  <button onClick={() => onRemoveSaved(c)} title="삭제" style={{ color: C.tx4 }}>
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={onSave}
+                disabled={!condition.trim()}
+                className="text-[10px] font-semibold px-2 py-[3px] rounded-full border disabled:opacity-40"
+                style={{ color: C.warn, borderColor: `color-mix(in srgb, ${C.warn} 45%, transparent)`, background: 'transparent' }}
+              >
+                ⭐ 저장
+              </button>
+            </div>
+            <textarea
+              value={condition}
+              onChange={(e) => onCond(e.target.value)}
+              rows={4}
+              placeholder="예) 프로필 로그아웃 후 QA_ADMIN으로 재로그인한 뒤 수행 / 주문 3건 배차 대기 세팅 후 수행"
+              className="w-full rounded-[8px] px-2.5 py-2 text-[12px] leading-[1.6] border outline-none resize-y"
+              style={{ background: C.inset, borderColor: C.line2, color: C.tx1 }}
+            />
+            <div className="flex gap-1.5 mt-1.5 text-[10px]" style={{ color: C.tx3 }}>
+              <span style={{ color: C.info }}>↺</span>
+              <span>
+                세션은 기본 <b style={{ color: C.tx2 }}>유지</b>(바로 화면). 계정 변경 조건이면 로그아웃 후 재로그인합니다.
+                재수행하면 대상 TC의 기존 결과·사유는 <b style={{ color: C.tx2 }}>덮어씁니다</b>.
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: C.line }}>
+          <span className="text-[11px]" style={{ color: C.tx3 }}>
+            대상 <b style={{ color: C.tx1 }}>{n}</b>건 · 조건 붙여 재수행
+          </span>
+          <div className="flex gap-1.5">
+            <Btn onClick={onCancel} disabled={running}>
+              취소
+            </Btn>
+            <Btn pri onClick={onConfirm} disabled={running || n === 0}>
+              {running ? '수행 중…' : `⟳ 이 조건으로 재수행 ${n}건`}
+            </Btn>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

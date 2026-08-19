@@ -93,3 +93,87 @@ export async function postComments(keys: string[], body: string): Promise<Commen
   }
   return out;
 }
+
+// ─── Fail TC → 버그 티켓 신규 생성 ──────────────────────────────────────
+// 코멘트와 같은 Atlassian 토큰·REST를 쓰되, 대상은 create-issue 엔드포인트다.
+// **사람이 [버그 등록]을 눌렀을 때만** 호출된다(외부 쓰기 — 자동 트리거 없음).
+
+export interface BugDraft {
+  /** TC 행 id — 성공 시 이 TC에 bug_ticket을 되박는다 */
+  tcId: number;
+  localId: string;
+  summary: string;
+  description: string;
+}
+export interface BugResult {
+  tcId: number;
+  localId: string;
+  ok: boolean;
+  key?: string;
+  url?: string;
+  error?: string;
+}
+
+/**
+ * Fail TC 초안들을 각각 Jira 버그로 등록한다 (TC당 1건).
+ * postComments와 같은 원칙 — **한 건 실패해도 나머지는 진행**하고 건별 결과를 돌려준다.
+ */
+export async function createBugs(projectKey: string, drafts: BugDraft[]): Promise<BugResult[]> {
+  const base = process.env.CONFLUENCE_BASE_URL?.replace(/\/$/, '');
+  const email = process.env.CONFLUENCE_EMAIL;
+  const token = process.env.CONFLUENCE_API_TOKEN;
+
+  if (!base || !email || !token) {
+    return drafts.map((d) => ({
+      tcId: d.tcId,
+      localId: d.localId,
+      ok: false,
+      error: 'Atlassian 인증 정보가 없습니다 (CONFLUENCE_BASE_URL·EMAIL·API_TOKEN)',
+    }));
+  }
+
+  const header = 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
+  const out: BugResult[] = [];
+
+  for (const d of drafts) {
+    try {
+      const res = await fetch(`${base}/rest/api/3/issue`, {
+        method: 'POST',
+        headers: {
+          Authorization: header,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fields: {
+            project: { key: projectKey },
+            issuetype: { name: '버그' },
+            summary: d.summary,
+            description: toAdf(d.description),
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        out.push({
+          tcId: d.tcId,
+          localId: d.localId,
+          ok: false,
+          error: `${res.status} ${(await res.text()).slice(0, 300)}`,
+        });
+        continue;
+      }
+      const json = (await res.json()) as { key?: string };
+      out.push({
+        tcId: d.tcId,
+        localId: d.localId,
+        ok: true,
+        key: json.key,
+        url: json.key ? `${base}/browse/${json.key}` : undefined,
+      });
+    } catch (e) {
+      out.push({ tcId: d.tcId, localId: d.localId, ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return out;
+}

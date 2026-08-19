@@ -24,7 +24,7 @@
  *   그전까지 TC는 채팅 메시지 안 마크다운 표에만 있어서
  *   판정·테스트 참조·수행 결과를 붙일 자리가 없었다.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const DDL = `
 -- ─────────────────────────────────────────────────────────────────────
@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS tc (
   extra             TEXT,                    -- 가변 컬럼 JSON
   test_ref          TEXT,                    -- JSON 배열
   handed_off_at     TEXT,                    -- 자동화 후보로 넘긴 시각
+  bug_ticket        TEXT,                    -- Fail 시 등록한 Jira 버그 키 (중복 등록 방지)
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
   UNIQUE (work_id, local_id)

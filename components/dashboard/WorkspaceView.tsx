@@ -623,6 +623,8 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         steps: string | null;
         expected: string | null;
       }>,
+      // 재수행 조건 — 있을 때만 프롬프트 맨 앞에 주입한다. 없으면(일반 수행) 기존과 동일.
+      opts?: { condition?: string },
     ) => {
       if (!activeSession || tcs.length === 0) return;
 
@@ -661,9 +663,19 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         return out;
       };
 
+      // 재수행 조건 블록 — 로그인 재사용 규칙보다 우선한다(계정 변경·재로그인 지시가 먹히게).
+      const conditionBlock = opts?.condition?.trim()
+        ? [
+            '[재수행 조건 — 아래 지시를 로그인 재사용 규칙보다 우선 적용할 것]',
+            opts.condition.trim(),
+            '',
+          ]
+        : [];
+
       const buildPrompt = (part: typeof tcs) =>
         [
           '[TC 자동 수행 — stage 환경 (tms-stage.roouty.io / API: tms-api-stage.roouty.io)]',
+          ...conditionBlock,
           '아래 TC 전부를 **시스템 지시의 수행 절차대로** 판정해줘:',
           '먼저 전체를 훑어 분류(백엔드 판정 가능 vs 화면 필요, 화면은 화면·전제별 그룹) →',
           '백엔드 그룹을 repo·stage API read-only로 일괄 판정 → 화면 그룹은 화면 단위로 한 번',
@@ -700,7 +712,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
             tcRun: true,
             phase: 'run',
             freshSession: true, // 새 세션 — 설계 대화 상속 안 함
-            onRetry: () => handleRunTc(retryTcs),
+            onRetry: () => handleRunTc(retryTcs, opts), // 재시도도 같은 조건 유지
           })) ?? '';
         // 빈 응답 = 에러/중단 → handleSend가 재시도 배너를 세워둔다
         if (!full.trim()) return { ok: false as const, applied: 0, unmatched: [] as string[] };

@@ -541,8 +541,16 @@ export interface TcRowDb {
   extra: string | null;
   test_ref: string | null;
   handed_off_at: string | null;
+  bug_ticket: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Fail TC에 등록한 Jira 버그 키를 기록한다 (중복 등록 방지·행 배지 표시용) */
+export function setTcBugTicket(id: number, bugTicket: string): void {
+  getDb()
+    .prepare(`UPDATE tc SET bug_ticket = ?, updated_at = ? WHERE id = ?`)
+    .run(bugTicket, nowIso(), id);
 }
 
 export function tcsOfWork(workId: number): TcRowDb[] {

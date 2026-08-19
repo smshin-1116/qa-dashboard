@@ -4,6 +4,7 @@ import {
   handOffTc,
   setTcResult,
   setTcVerdict,
+  setTcBugTicket,
   tcWorkBySession,
   tcsOfWork,
   upsertTc,
@@ -15,7 +16,7 @@ import { normalizeTcId } from '@/lib/tcId';
 import { assignCatalogIds, candidatesFor, loadCatalog } from '@/lib/workspace/catalog';
 import { makeFingerprint } from '@/lib/workspace/fingerprint';
 import { buildComment, extractTicketKeys, extractRunPlan, tally } from '@/lib/workspace/tcReport';
-import { postComments } from '@/lib/workspace/jiraComment';
+import { postComments, createBugs, type BugDraft } from '@/lib/workspace/jiraComment';
 import { todayKst } from '@/lib/workspace/db';
 
 /**
@@ -134,6 +135,7 @@ function toApi(t: TcRowDb) {
     note: t.note,
     testRef: t.test_ref ? (JSON.parse(t.test_ref) as string[]) : [],
     handedOffAt: t.handed_off_at,
+    bugTicket: t.bug_ticket, // Fail로 등록한 Jira 버그 키 (있으면 재등록 안 함)
     // 11컬럼 밖의 값 — 화면이 이걸 읽어 컬럼을 늘린다 (컬럼 고정 해제의 실현부)
     extra: t.extra ? (JSON.parse(t.extra) as Record<string, string>) : null,
   };
@@ -194,6 +196,14 @@ interface CloseBody {
   keys: string[];
   body: string;
 }
+/** Fail TC → 버그 티켓 신규 등록 — 사람이 [버그 등록]을 눌러야만 온다 (외부 쓰기) */
+interface CreateBugsBody {
+  action: 'create-bugs';
+  sessionId: string;
+  /** 등록할 보드 (기본 DV) */
+  project?: string;
+  drafts: BugDraft[];
+}
 
 type Body =
   | SaveBody
@@ -203,7 +213,8 @@ type Body =
   | HandoffBody
   | PreviewBody
   | ClosePreviewBody
-  | CloseBody;
+  | CloseBody
+  | CreateBugsBody;
 
 export async function POST(req: Request) {
   const body = (await req.json()) as Body;
@@ -481,6 +492,19 @@ export async function POST(req: Request) {
         closed: anyOk || body.keys.length === 0,
         results,
       });
+    }
+
+    // ── Fail TC → 버그 티켓 신규 등록 (TC당 1건, 기본 DV) ──────────────
+    case 'create-bugs': {
+      const work = tcWorkBySession(body.sessionId);
+      if (!work) return NextResponse.json({ error: '작업을 찾을 수 없습니다' }, { status: 404 });
+      if (!body.drafts?.length) return NextResponse.json({ error: '등록할 초안이 없습니다' }, { status: 400 });
+
+      const results = await createBugs(body.project || 'DV', body.drafts);
+      // 성공한 건만 TC에 버그 키를 저장 → 재등록 방지 (조용한 실패 금지: 실패는 그대로 반환)
+      for (const r of results) if (r.ok && r.key) setTcBugTicket(r.tcId, r.key);
+
+      return NextResponse.json({ ok: results.every((r) => r.ok), results });
     }
 
     default:

@@ -74,6 +74,15 @@ function migrate(db: DatabaseSync): void {
     }
   }
 
+  // v4: tc.bug_ticket — Fail TC에 등록한 Jira 버그 키(중복 등록 방지). 기존 DB엔 ALTER.
+  if (current > 0 && current < 4) {
+    try {
+      db.exec(`ALTER TABLE tc ADD COLUMN bug_ticket TEXT`);
+    } catch {
+      // 이미 있으면 무시
+    }
+  }
+
   if (current !== SCHEMA_VERSION) {
     db.prepare(
       `INSERT INTO meta (key, value, updated_at) VALUES ('schema_version', ?, ?)
