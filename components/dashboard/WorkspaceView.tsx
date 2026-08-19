@@ -692,8 +692,22 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           ].join('\n')
         : '';
 
-      // 결과 표 파서 — 한 세션 응답에서 | TC-ID | 결과 | 사유 | 행만 뽑는다
-      const RESULTS = new Set(['Pass', 'Fail', 'Blocked', 'Not Test']);
+      // 결과 표 파서 — 한 세션 응답에서 | TC-ID | 결과 | 사유 | 행만 뽑는다.
+      //
+      // ── 결과 단어 정규화 (2026-08-19) ──────────────────────────────────
+      // 예전엔 정확히 'Pass'|'Fail'|'Blocked'|'Not Test'만 받아, 모델이 대소문자·동의어·한글로
+      // 살짝 다르게 뱉으면(PASS · Not Tested · 실패 · 차단) 그 행이 조용히 탈락 → "재수행했는데
+      // 반영 안 됨"으로 보였다. 표기 흔들림을 표준 4종으로 흡수한다. 애매하면 받지 않고 버린다
+      // (오분류 방지 — 매칭 못 하는 게 잘못 넣는 것보다 낫다).
+      const canonResult = (raw: string): 'Pass' | 'Fail' | 'Blocked' | 'Not Test' | null => {
+        const s = raw.toLowerCase().replace(/[\s_()-]/g, '');
+        if (/^(pass|passed|성공|정상|ok|통과)$/.test(s)) return 'Pass';
+        if (/^(fail|failed|실패|버그|결함|ng)$/.test(s)) return 'Fail';
+        if (/^(blocked|block|차단|보류|불가|막힘)$/.test(s)) return 'Blocked';
+        if (/^(nottest|nottested|notest|미수행|미테스트|na|n\/a|skip|skipped|건너뜀|제외)$/.test(s))
+          return 'Not Test';
+        return null;
+      };
       const parseResults = (full: string) => {
         const out: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }> = [];
         for (const line of full.split('\n')) {
@@ -705,8 +719,9 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           // ⚠️ 예전엔 /^TC-\d+/로 한정해, local_id가 숫자(1,2,3)·MV-·RPT- 등인 작업은 결과가
           //    통째로 파싱에서 탈락해 기입이 안 됐다 (회귀 수정 2026-08-18). 매칭은 서버가 정규화로 처리.
           if (!localId || /^-{2,}$/.test(localId) || localId.toUpperCase() === 'TC-ID') continue;
-          if (!RESULTS.has(result)) continue;
-          out.push({ localId, result: result as 'Pass' | 'Fail' | 'Blocked' | 'Not Test', note: note || undefined });
+          const canon = canonResult(result);
+          if (!canon) continue;
+          out.push({ localId, result: canon, note: note || undefined });
         }
         return out;
       };
@@ -754,6 +769,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
 
       // 한 세션 실행 → 파싱 → 기입. retryTcs = 실패 시 재시도 배너가 다시 돌릴 TC 목록.
       const runOne = async (part: typeof tcs, label: string, retryTcs: typeof tcs) => {
+        const requested = part.map((t) => t.localId); // 이번에 수행 요청한 TC-ID
         const full =
           (await handleSend(buildPrompt(part), [], {
             displayMessage: label,
@@ -763,26 +779,39 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
             onRetry: () => handleRunTc(retryTcs, opts), // 재시도도 같은 조건 유지
           })) ?? '';
         // 빈 응답 = 에러/중단 → handleSend가 재시도 배너를 세워둔다
-        if (!full.trim()) return { ok: false as const, applied: 0, unmatched: [] as string[] };
+        if (!full.trim())
+          return { ok: false as const, applied: 0, unmatched: [] as string[], missing: [] as string[] };
         const parsed = parseResults(full);
         if (parsed.length === 0) {
-          addToast('warning', '수행은 됐지만 결과 표를 못 읽었습니다. 대화에서 확인 후 수동 기입해주세요.');
-          return { ok: true as const, applied: 0, unmatched: [] as string[] };
+          // 표를 통째로 못 읽음 = 요청한 TC 전부 미반영. 어느 TC였는지 명시해 조용히 지나가지 않게 한다.
+          addToast(
+            'warning',
+            `수행은 됐지만 결과 표를 못 읽어 ${requested.length}건 미반영 (${requested.join(', ')}). 대화에서 확인 후 다시 수행하거나 수동 기입해주세요.`,
+          );
+          return { ok: true as const, applied: 0, unmatched: [] as string[], missing: requested };
         }
         const res = await fetch('/api/workspace/tc', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'auto-results', sessionId: activeSession.id, results: parsed }),
+          body: JSON.stringify({ action: 'auto-results', sessionId: activeSession.id, results: parsed, requested }),
         });
-        const body = (await res.json()) as { applied: number; unmatched: string[] };
+        const body = (await res.json()) as { applied: number; unmatched: string[]; missing?: string[] };
         setTcSavedAt(Date.now()); // 세션(청크)마다 즉시 표 새로고침
-        return { ok: true as const, applied: body.applied, unmatched: body.unmatched };
+        return {
+          ok: true as const,
+          applied: body.applied,
+          unmatched: body.unmatched,
+          missing: body.missing ?? [],
+        };
       };
 
-      const finalToast = (applied: number, unmatched: string[]) =>
+      const finalToast = (applied: number, unmatched: string[], missing: string[]) =>
         addToast(
-          unmatched.length ? 'warning' : 'success',
-          `${applied}건 자동 기입` + (unmatched.length ? ` · 미매칭 ${unmatched.join(', ')}` : ''),
+          unmatched.length || missing.length ? 'warning' : 'success',
+          `${applied}건 자동 기입` +
+            // 미반영(표에서 누락) — 재수행 필요. 미매칭(표엔 있으나 매칭 실패)과 구분해 보여준다.
+            (missing.length ? ` · ⚠ 미반영 ${missing.join(', ')} (다시 수행 필요)` : '') +
+            (unmatched.length ? ` · 미매칭 ${unmatched.join(', ')}` : ''),
         );
 
       /*
@@ -803,7 +832,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           tcs,
         );
         if (!r.ok) return;
-        finalToast(r.applied, r.unmatched);
+        finalToast(r.applied, r.unmatched, r.missing);
         return;
       }
 
@@ -811,6 +840,7 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
       for (let i = 0; i < tcs.length; i += CHUNK) chunks.push(tcs.slice(i, i + CHUNK));
       let totalApplied = 0;
       const allUnmatched: string[] = [];
+      const allMissing: string[] = [];
       for (let ci = 0; ci < chunks.length; ci++) {
         const part = chunks[ci];
         const r = await runOne(
@@ -821,8 +851,9 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
         if (!r.ok) return; // handleSend가 재시도 배너를 세워둠 — 남은 청크는 멈춘다
         totalApplied += r.applied;
         allUnmatched.push(...r.unmatched);
+        allMissing.push(...r.missing);
       }
-      finalToast(totalApplied, allUnmatched);
+      finalToast(totalApplied, allUnmatched, allMissing);
     },
     [activeSession, absorb.contract, handleSend, addToast],
   );

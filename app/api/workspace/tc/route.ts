@@ -163,6 +163,13 @@ interface AutoResultsBody {
   action: 'auto-results';
   sessionId: string;
   results: Array<{ localId: string; result: 'Pass' | 'Fail' | 'Blocked' | 'Not Test'; note?: string }>;
+  /**
+   * 이번에 수행/재수행을 **요청한** TC-ID 목록(옵션). 주면 서버가 결과 표에 안 담겨
+   * 반영 못 한 TC를 `missing`으로 돌려준다 — 모델이 일부 TC를 표에서 누락했을 때
+   * "재수행했는데 반영 안 됨"이 조용히 지나가지 않게 한다 (2026-08-19). 정규화는
+   * 여기서(applied 매칭과 동일 규칙) 하므로 클라이언트가 별도 정규화할 필요 없다.
+   */
+  requested?: string[];
 }
 interface CandidatesBody {
   action: 'candidates';
@@ -279,6 +286,8 @@ export async function POST(req: Request) {
       const byNorm = new Map(all.map((t) => [norm(t.local_id), t]));
       let applied = 0;
       const unmatched: string[] = [];
+      // 실제로 반영된 TC의 정규화 키 — 요청 대비 누락(missing) 판정에 쓴다.
+      const appliedNorm = new Set<string>();
       for (const r of body.results) {
         const tc = byLocal.get(r.localId) ?? byNorm.get(norm(r.localId));
         if (!tc) {
@@ -286,10 +295,14 @@ export async function POST(req: Request) {
           continue;
         }
         setTcResult(tc.id, r.result, r.note ?? null);
+        appliedNorm.add(norm(tc.local_id));
         applied++;
       }
+      // 요청한 TC 중 결과 표에 안 담겨 반영 못 한 것 — 모델이 표에서 누락한 케이스.
+      // 조용한 미반영 금지: 화면이 "이 TC들은 다시 재수행하라"고 안내할 수 있게 돌려준다.
+      const missing = (body.requested ?? []).filter((id) => !appliedNorm.has(norm(id)));
       // 조용한 실패 금지 — 매칭 안 된 local_id를 화면이 알 수 있게 돌려준다
-      return NextResponse.json({ ok: true, applied, unmatched });
+      return NextResponse.json({ ok: true, applied, unmatched, missing });
     }
 
     // ── 넘기기 직전 중복 확인용 후보 ─────────────────────────────────
