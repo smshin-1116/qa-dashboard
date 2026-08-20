@@ -184,6 +184,14 @@ export default function TcPanel({
   const [bugModal, setBugModal] = useState<{ drafts: BugDraft[]; project: string } | null>(null);
   /** 재수행 모달 — 옵션 기능. 대상(직접 선택) + 조건 */
   const [rerun, setRerun] = useState<{ targets: Set<number>; condition: string } | null>(null);
+  /**
+   * 수동 검증 모달 (2026-08-20) — 자동 수행과 짝. 기능·엣지 케이스처럼 사람이 직접
+   * 눈으로 확인해야 하는 TC를, 에이전트를 돌리지 않고 스텝·기대결과를 보며 손으로
+   * Pass/Fail·사유를 기입한다. 저장은 자동 수행과 같은 auto-results 경로를 재사용.
+   */
+  const [manual, setManual] = useState<{
+    items: Array<{ tcId: number; localId: string; result: Result; note: string }>;
+  } | null>(null);
   /** env에 설정된 QA 역할 (계정 칩용, 이름만) */
   const [qaRoles, setQaRoles] = useState<Array<{ role: string; label: string }>>([]);
   /** 내가 저장한 재수행 조건 (localStorage) */
@@ -364,6 +372,59 @@ export default function TcPanel({
       })),
       { condition: cond || undefined },
     );
+  }
+
+  // ── 수동 검증 (자동 수행과 짝) — 사람이 직접 판정 ────────────────────
+  /** 체크한 TC를 수동 검증 체크리스트로 연다. 현재 결과·사유를 초기값으로. */
+  function openManual() {
+    const chosen = tcs.filter((t) => picked.has(t.id));
+    if (chosen.length === 0) return;
+    setManual({
+      items: chosen.map((t) => ({ tcId: t.id, localId: t.localId, result: t.result, note: t.note ?? '' })),
+    });
+  }
+  function setManualItem(i: number, patch: Partial<{ result: Result; note: string }>) {
+    setManual((m) => (m ? { ...m, items: m.items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)) } : m));
+  }
+  /** 수동 판정 저장 — 자동 수행과 동일한 auto-results 경로(결과+사유 일괄 기입). */
+  async function saveManual() {
+    if (!manual || !sessionId) return;
+    setBusy(true);
+    try {
+      const results = manual.items.map((it) => ({
+        localId: it.localId,
+        result: it.result,
+        note: it.note.trim() || undefined,
+      }));
+      const res = await fetch('/api/workspace/tc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'auto-results',
+          sessionId,
+          results,
+          requested: manual.items.map((it) => it.localId),
+        }),
+      });
+      const body = (await res.json()) as { applied: number; missing?: string[]; error?: string };
+      if (!res.ok) throw new Error(body.error || `저장 실패 (${res.status})`);
+      // 로컬 반영 — 저장된 결과·사유를 표에 즉시 (새로고침 전에도 보이게)
+      setTcs((prev) =>
+        prev.map((t) => {
+          const it = manual.items.find((x) => x.tcId === t.id);
+          return it ? { ...t, result: it.result, note: it.note.trim() || null } : t;
+        }),
+      );
+      setManual(null);
+      say(
+        body.missing?.length ? 'warn' : 'ok',
+        `수동 검증 ${body.applied}건 저장` + (body.missing?.length ? ` · 미반영 ${body.missing.join(', ')}` : ''),
+      );
+    } catch (e) {
+      say('crit', `수동 검증 저장 실패 — ${e instanceof Error ? e.message : '알 수 없음'}. 다시 시도해주세요`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   /** 선택(picked) 또는 전체 TC를 자동 수행에 넘긴다 */
@@ -565,8 +626,8 @@ export default function TcPanel({
               ③~⑥ TC 작성 · ⑦ 수행
             </div>
             <div className="text-[11px] mt-0.5" style={{ color: C.tx3 }}>
-              컬럼은 <b style={{ color: C.tx2 }}>고정 11개가 아니라 상황에 맞게</b> · 수행은{' '}
-              <b style={{ color: C.tx2 }}>[수행] 버튼으로 stage 자동 실행</b> 또는 결과 직접 기입
+              수행은 <b style={{ color: C.tx2 }}>[수행]으로 stage 자동 실행</b> 또는{' '}
+              <b style={{ color: C.tx2 }}>[수동 검증]으로 직접 판정</b> — 기능·엣지 케이스는 수동으로
             </div>
           </div>
           <div className="flex gap-1.5 flex-shrink-0">
@@ -596,6 +657,14 @@ export default function TcPanel({
                 </Btn>
               </>
             )}
+            {/* 수동 검증 — 자동 수행과 짝. 에이전트 없이 사람이 직접 판정 (onRunTc 없어도 동작) */}
+            <Btn
+              onClick={openManual}
+              disabled={busy || picked.size === 0}
+              title="체크한 TC를 직접 검증 — 스텝·기대결과를 보며 Pass/Fail·사유를 손으로 기입 (에이전트 자동 실행 없음). 기능·엣지 케이스용"
+            >
+              ✋ 수동 검증{picked.size ? ` ${picked.size}` : ''}
+            </Btn>
             {/* Fail(미등록)이 있으면 버그 등록 창구 노출 */}
             {tcs.some((t) => t.result === 'Fail' && !t.bugTicket) && (
               <Btn onClick={openBugModal} disabled={busy}>
@@ -915,6 +984,150 @@ export default function TcPanel({
           onConfirm={() => void runRerun()}
         />
       )}
+
+      {manual && (
+        <ManualVerifyModal
+          items={manual.items}
+          tcs={tcs}
+          busy={busy}
+          onSet={setManualItem}
+          onCancel={() => setManual(null)}
+          onConfirm={() => void saveManual()}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── 수동 검증 모달 (2026-08-20) ──────────────────────────────────────
+// 자동 수행의 짝 — 에이전트를 돌리지 않고 사람이 스텝·기대결과를 보며 직접 판정한다.
+// 기능·엣지 케이스처럼 눈으로 확인해야 하는 것에 쓴다. 저장은 자동 수행과 같은 경로.
+function ManualVerifyModal({
+  items,
+  tcs,
+  busy,
+  onSet,
+  onCancel,
+  onConfirm,
+}: {
+  items: Array<{ tcId: number; localId: string; result: Result; note: string }>;
+  tcs: Tc[];
+  busy: boolean;
+  onSet: (i: number, patch: Partial<{ result: Result; note: string }>) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const judged = items.filter((it) => it.result !== 'Not Test').length;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'color-mix(in srgb, #000 55%, transparent)' }}
+    >
+      <div
+        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-[13px] border overflow-hidden"
+        style={{ background: C.panel, borderColor: C.line }}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: C.line }}>
+          <div className="text-[13px] font-[640]" style={{ color: C.tx1 }}>
+            ✋ 수동 검증 — 직접 판정
+          </div>
+          <div className="font-mono text-[11px]" style={{ color: judged === items.length ? C.ok : C.tx3 }}>
+            {judged}/{items.length} 판정
+          </div>
+        </div>
+
+        <div className="px-4 py-2 text-[11px] border-b" style={{ borderColor: C.line, color: C.tx3, background: C.inset }}>
+          에이전트를 돌리지 않습니다 — 아래 스텝·기대결과를 <b style={{ color: C.tx2 }}>직접 확인</b>하고
+          결과·사유를 기입한 뒤 저장하세요.
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5">
+          {items.map((it, i) => {
+            const tc = tcs.find((t) => t.id === it.tcId);
+            return (
+              <div key={it.tcId} className="rounded-[10px] border p-2.5" style={{ borderColor: C.line2, background: C.inset }}>
+                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                  <span className="font-mono text-[11px] font-bold" style={{ color: C.accent }}>
+                    {it.localId}
+                  </span>
+                  {tc?.phase && <Pill tone={PHASE_TONE[tc.phase] ?? 'idle'}>{tc.phase}</Pill>}
+                  <span className="text-[11px] truncate" style={{ color: C.tx3 }}>
+                    {tc?.subCategory || tc?.category || ''}
+                  </span>
+                </div>
+
+                {/* 무엇을 확인하는가 — 전제·스텝·기대결과 (읽기 전용) */}
+                <div className="text-[11px] leading-[1.7] mb-2" style={{ color: C.tx2 }}>
+                  {tc?.precondition && (
+                    <div>
+                      <span style={{ color: C.tx4 }}>전제 </span>
+                      {tc.precondition}
+                    </div>
+                  )}
+                  {tc?.steps && (
+                    <div>
+                      <span style={{ color: C.tx4 }}>스텝 </span>
+                      {tc.steps}
+                    </div>
+                  )}
+                  {tc?.expected && (
+                    <div>
+                      <span style={{ color: C.tx4 }}>기대 </span>
+                      <b style={{ color: C.tx1 }}>{tc.expected}</b>
+                    </div>
+                  )}
+                </div>
+
+                {/* 결과 판정 버튼 */}
+                <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                  {RESULTS.map((r) => {
+                    const on = it.result === r;
+                    const tone = RESULT_TONE[r];
+                    return (
+                      <button
+                        key={r}
+                        onClick={() => onSet(i, { result: r })}
+                        className="px-2.5 py-1 rounded-[6px] border text-[11px] font-[640] transition-colors"
+                        style={{
+                          color: on ? TONE_FG[tone] : C.tx3,
+                          borderColor: on ? `color-mix(in srgb, ${TONE_FG[tone]} 55%, transparent)` : C.line2,
+                          background: on ? `color-mix(in srgb, ${TONE_FG[tone]} 13%, transparent)` : 'transparent',
+                        }}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 사유 */}
+                <textarea
+                  value={it.note}
+                  onChange={(e) => onSet(i, { note: e.target.value })}
+                  rows={2}
+                  placeholder="사유 — 확인한 내용·근거 (예: 스텝대로 재현, 기대결과 일치 / 어긋난 지점)"
+                  className="w-full rounded-[8px] border px-2.5 py-1.5 text-[11px] leading-[1.6] resize-none outline-none"
+                  style={{ borderColor: C.line2, background: C.panel, color: C.tx1 }}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-t" style={{ borderColor: C.line }}>
+          <div className="text-[11px]" style={{ color: C.tx4 }}>
+            저장하면 표의 결과·사유에 즉시 반영됩니다
+          </div>
+          <div className="flex gap-2">
+            <Btn onClick={onCancel} disabled={busy}>
+              취소
+            </Btn>
+            <Btn pri onClick={onConfirm} disabled={busy}>
+              {busy ? '저장 중…' : `${items.length}건 저장`}
+            </Btn>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
