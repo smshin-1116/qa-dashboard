@@ -226,6 +226,24 @@ export function openFindings(limit = 50): FindingRow[] {
 }
 
 /**
+ * LLM 배치 분석 결과 기입 (2026-08-20).
+ * analyzed_at을 갱신해 fingerprint 캐시(TTL 7일) 기준으로 재분석을 건너뛰게 한다.
+ * kind는 LLM이 새로 제시한 경우에만 덮고(없으면 규칙 분류 유지), verdict_by='llm'로 표시.
+ */
+export function setFindingAnalysis(
+  id: number,
+  input: { analysis: string; kind?: string | null; verdictBy?: string },
+): void {
+  getDb()
+    .prepare(
+      `UPDATE finding
+         SET analysis = ?, analyzed_at = ?, kind = COALESCE(?, kind), verdict_by = ?
+       WHERE id = ?`,
+    )
+    .run(input.analysis, nowIso(), input.kind ?? null, input.verdictBy ?? 'llm', id);
+}
+
+/**
  * 이번 실행에서 안 나온 실패는 해결된 것으로 표시한다.
  * (매일 도는 스위트에서 사라진 실패 = 고쳐졌거나 flaky가 지나간 것)
  */

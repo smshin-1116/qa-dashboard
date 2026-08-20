@@ -54,6 +54,9 @@ interface QueueItem {
   detail: string | null;
   occurrences: number;
   verdict: { label: string; how: string; tone: string };
+  /** LLM 배치 분석 결과(있으면) */
+  analysis: string | null;
+  analyzedAt: string | null;
   fromWork: boolean;
   lastSeen: string;
 }
@@ -62,6 +65,7 @@ interface Payload {
   assets: Asset[];
   queue: QueueItem[];
   verdictTally: { rule: number; cache: number; llm: number };
+  analysisStats: { needAnalysis: number; cached: number };
   xfailWatch: Array<{ target: string; detail: string | null; contractKey: string | null }>;
   handedFromWork: number;
 }
@@ -70,13 +74,50 @@ export default function AutomationView() {
   const [model, setModel] = useState<AIModel>('claude');
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
+  /** 실패 일괄 분석 진행/결과 */
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
+
+  const reload = () =>
+    fetch('/api/workspace/automation', { cache: 'no-store' })
+      .then((r) => r.json() as Promise<Payload>)
+      .then(setData);
 
   useEffect(() => {
-    void fetch('/api/workspace/automation', { cache: 'no-store' })
-      .then((r) => r.json() as Promise<Payload>)
-      .then(setData)
-      .finally(() => setLoading(false));
+    void reload().finally(() => setLoading(false));
   }, []);
+
+  /** 실패 일괄 분석 — 규칙이 못 가른/오래된 실패만 LLM 배치 1회로. 끝나면 목록 갱신. */
+  async function runAnalysis() {
+    if (analyzing) return;
+    setAnalyzing(true);
+    setAnalyzeMsg('분석 중… (LLM 배치 1회, 최대 1분)');
+    try {
+      const res = await fetch('/api/workspace/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'analyze' }),
+      });
+      const body = (await res.json()) as {
+        ok?: boolean;
+        analyzed?: number;
+        cached?: number;
+        unmatched?: number;
+        error?: string;
+      };
+      if (!res.ok || !body.ok) throw new Error(body.error ?? `실패 (${res.status})`);
+      await reload();
+      setAnalyzeMsg(
+        `분석 완료 — 새로 ${body.analyzed ?? 0}건` +
+          (body.cached ? ` · 캐시 재사용 ${body.cached}건` : '') +
+          (body.unmatched ? ` · 미매칭 ${body.unmatched}건` : ''),
+      );
+    } catch (e) {
+      setAnalyzeMsg(`분석 실패 — ${e instanceof Error ? e.message : '알 수 없음'}`);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   return (
     <div className="flex flex-col h-screen bg-[var(--ground)]">
@@ -144,6 +185,34 @@ export default function AutomationView() {
                     <Pill tone="idle">캐시 {data.verdictTally.cache}</Pill>
                     <Pill tone="info">LLM {data.verdictTally.llm}</Pill>
                   </div>
+                </div>
+
+                {/* 실패 일괄 분석 트리거 — 규칙이 못 가른/오래된 실패만 LLM 배치 1회. fingerprint 캐시 재사용 */}
+                <div
+                  className="flex items-center justify-between gap-3 px-3 py-2.5 mb-2.5 rounded-[9px] border"
+                  style={{ borderColor: 'var(--line-2)', background: 'var(--inset)' }}
+                >
+                  <div className="text-[11.5px] text-[var(--tx-2)] min-w-0">
+                    <b className="text-[var(--tx-1)]">실패 일괄 분석</b>{' '}
+                    <span className="text-[var(--tx-3)]">
+                      분석 대상 <b style={{ color: TONE.info.fg }}>{data.analysisStats.needAnalysis}</b>건 · 캐시 재사용{' '}
+                      <b>{data.analysisStats.cached}</b>건 (LLM 배치 1회 · 도구 없음 · Sonnet)
+                    </span>
+                    {analyzeMsg && (
+                      <div className="text-[10.5px] mt-1" style={{ color: analyzing ? 'var(--tx-3)' : TONE.ok.fg }}>
+                        {analyzeMsg}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => void runAnalysis()}
+                    disabled={analyzing || data.analysisStats.needAnalysis === 0}
+                    className="shrink-0 px-3 py-1.5 rounded-[7px] text-[11.5px] font-[640] border text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ background: 'var(--accent-deep)', borderColor: 'var(--accent-deep)' }}
+                    title="규칙이 분류 못 한/오래된(7일 초과) 실패만 LLM 배치 1회로 분석합니다"
+                  >
+                    {analyzing ? '분석 중…' : '분석 실행'}
+                  </button>
                 </div>
 
                 {data.handedFromWork > 0 && (
@@ -282,6 +351,15 @@ function QueueRow({ q }: { q: QueueItem }) {
         <span className="text-[var(--tx-2)]">{(q.detail ?? '').replace(/^\[QA 작업\]\s*/, '') || '—'}</span>
         {q.occurrences > 1 && (
           <span className="font-mono text-[9.5px] text-[var(--tx-3)]"> ×{q.occurrences}</span>
+        )}
+        {q.analysis && (
+          <div
+            className="mt-1 pl-2 text-[10.5px] border-l-2"
+            style={{ borderColor: TONE.info.bd, color: 'var(--tx-3)' }}
+            title={q.analyzedAt ? `LLM 분석 · ${q.analyzedAt.slice(0, 16)}` : 'LLM 분석'}
+          >
+            <b style={{ color: TONE.info.fg }}>🔍 분석</b> {q.analysis}
+          </div>
         )}
       </Td>
       <Td>

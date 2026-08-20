@@ -18,6 +18,8 @@ export interface ClaudeRunOptions {
    * 캐시된 프리픽스가 전부 무효화되어 세션 재사용 이득이 사라집니다.
    */
   disableMcp?: boolean;
+  /** 모델 지정 (예: 'sonnet'). 미지정 시 CLI 기본. 저비용 원샷 작업에 sonnet 권장. */
+  model?: string;
   onChunk?: (text: string) => void;
   onTool?: (label: string) => void;
 }
@@ -47,7 +49,7 @@ function getToolLabel(name: string): string {
  */
 export function runClaude(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
   return new Promise((resolve, reject) => {
-    const { message, systemPrompt, claudeSessionId, disableMcp, onChunk, onTool } = options;
+    const { message, systemPrompt, claudeSessionId, disableMcp, model, onChunk, onTool } = options;
 
     const args: string[] = [
       '-p', message,
@@ -57,6 +59,10 @@ export function runClaude(options: ClaudeRunOptions): Promise<ClaudeRunResult> {
       '--dangerously-skip-permissions',
       '--append-system-prompt', systemPrompt,
     ];
+
+    if (model) {
+      args.push('--model', model);
+    }
 
     if (disableMcp) {
       args.push('--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}');

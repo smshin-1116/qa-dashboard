@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { latestRunsByRunner, openFindings } from '@/lib/workspace/repo';
 import type { FindingRow } from '@/lib/workspace/types';
 import { loadCatalog } from '@/lib/workspace/catalog';
+import { isAnalysisFresh } from '@/lib/workspace/fingerprint';
+import { analyzeFailures } from '@/lib/workspace/analyzeFailures';
 
 /**
  * GET /api/workspace/automation — 테스트 자동화 탭 데이터.
@@ -88,11 +90,21 @@ export async function GET() {
       detail: f.detail,
       occurrences: f.occurrences,
       verdict: vp,
+      /** LLM 배치 분석 결과(있으면) — 근본원인 + 조치 방향 */
+      analysis: f.analysis,
+      analyzedAt: f.analyzed_at,
       /** QA 작업에서 넘어온 것인지 (detail에 출처가 박혀 있다) */
       fromWork: (f.detail ?? '').startsWith('[QA 작업]'),
       lastSeen: f.last_seen,
     };
   });
+
+  // 실패 일괄 분석 대상 집계 — 미분석·TTL 만료 = 분석 대상, 나머지는 캐시 재사용
+  const analysisStats = { needAnalysis: 0, cached: 0 };
+  for (const f of findings) {
+    if (isAnalysisFresh(f.analyzed_at)) analysisStats.cached++;
+    else analysisStats.needAnalysis++;
+  }
 
   // 판정 경로 집계 — 시안 "규칙 N · 캐시 N · LLM N" (토큰 설계 가시화)
   const verdictTally = { rule: 0, cache: 0, llm: 0 };
@@ -114,8 +126,30 @@ export async function GET() {
     assets,
     queue,
     verdictTally,
+    analysisStats,
     xfailWatch,
     // QA 작업 인계분만 따로 셈 — 이 탭이 받은 신호 (인계 완결의 증거)
     handedFromWork: queue.filter((q) => q.fromWork).length,
   });
+}
+
+/**
+ * POST /api/workspace/automation — { action: 'analyze' }
+ * 실패 일괄 분석 트리거. 규칙이 못 가른/오래된 실패만 LLM 배치 1회로 분석한다.
+ * GET(화면 로드)엔 LLM을 넣지 않는다는 원칙을 지키려 쓰기는 여기로 분리.
+ */
+export async function POST(req: Request) {
+  const body = (await req.json().catch(() => ({}))) as { action?: string };
+  if (body.action !== 'analyze') {
+    return NextResponse.json({ error: 'unknown action' }, { status: 400 });
+  }
+  try {
+    const result = await analyzeFailures();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : '분석 실패' },
+      { status: 500 },
+    );
+  }
 }
