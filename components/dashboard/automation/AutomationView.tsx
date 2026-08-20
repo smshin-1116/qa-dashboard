@@ -60,14 +60,34 @@ interface QueueItem {
   fromWork: boolean;
   lastSeen: string;
 }
+interface RunnerTrigger {
+  runner: string;
+  via: string;
+  tiers: string[];
+  ready: boolean;
+  note: string;
+}
 interface Payload {
   catalog: { total: number; generatedAt: string | null } | null;
   assets: Asset[];
   queue: QueueItem[];
   verdictTally: { rule: number; cache: number; llm: number };
   analysisStats: { needAnalysis: number; cached: number };
+  triggers: RunnerTrigger[];
   xfailWatch: Array<{ target: string; detail: string | null; contractKey: string | null }>;
   handedFromWork: number;
+}
+
+/** 실행 트리거 미리보기(승인 게이트) 상태 */
+interface TriggerModalState {
+  runner: string;
+  tier: string;
+  via: string;
+  ready: boolean;
+  note: string;
+  message: string;
+  running: boolean;
+  result: string | null;
 }
 
 export default function AutomationView() {
@@ -77,6 +97,8 @@ export default function AutomationView() {
   /** 실패 일괄 분석 진행/결과 */
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
+  /** 실행 트리거 승인 게이트 모달 */
+  const [trig, setTrig] = useState<TriggerModalState | null>(null);
 
   const reload = () =>
     fetch('/api/workspace/automation', { cache: 'no-store' })
@@ -116,6 +138,43 @@ export default function AutomationView() {
       setAnalyzeMsg(`분석 실패 — ${e instanceof Error ? e.message : '알 수 없음'}`);
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  /** ▶ 실행 클릭 → 미리보기(게이트) 먼저. 실제 CI는 여기서 부르지 않는다. */
+  async function openTrigger(runner: string, tier: string) {
+    const res = await fetch('/api/workspace/automation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'trigger', runner, tier }),
+    });
+    const b = (await res.json()) as { via?: string; ready?: boolean; note?: string; message?: string };
+    setTrig({
+      runner,
+      tier,
+      via: b.via ?? '',
+      ready: b.ready ?? false,
+      note: b.note ?? '',
+      message: b.message ?? '',
+      running: false,
+      result: null,
+    });
+  }
+
+  /** 모달 [실행] → confirm=true로 실제 CI 트리거 */
+  async function confirmTrigger() {
+    if (!trig || trig.running) return;
+    setTrig({ ...trig, running: true, result: '트리거 중…' });
+    try {
+      const res = await fetch('/api/workspace/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'trigger', runner: trig.runner, tier: trig.tier, confirm: true }),
+      });
+      const b = (await res.json()) as { ok?: boolean; message?: string; url?: string | null };
+      setTrig((t) => (t ? { ...t, running: false, result: (b.ok ? '✅ ' : '❌ ') + (b.message ?? '') } : t));
+    } catch (e) {
+      setTrig((t) => (t ? { ...t, running: false, result: `❌ ${e instanceof Error ? e.message : '실패'}` } : t));
     }
   }
 
@@ -162,7 +221,14 @@ export default function AutomationView() {
                     </div>
                   </Card>
                 ) : (
-                  data.assets.map((a) => <AssetCard key={a.runner} a={a} />)
+                  data.assets.map((a) => (
+                    <AssetCard
+                      key={a.runner}
+                      a={a}
+                      trigger={data.triggers.find((t) => t.runner === a.runner)}
+                      onTrigger={openTrigger}
+                    />
+                  ))
                 )}
               </div>
 
@@ -287,28 +353,39 @@ export default function AutomationView() {
                 </div>
               </Card>
 
-              {/* 다음 단계 안내 — 만들 것을 흐리게 두지 않는다 */}
+              {/* 다음 단계 안내 — 완료분/남은분을 흐리게 두지 않는다 */}
               <Card stripe="idle">
                 <div className="text-[11px] text-[var(--tx-3)] leading-[1.9]">
-                  <b className="text-[var(--tx-3)]">다음 단계</b> (실제 CI 호출·토큰이 걸려 별도 승인 후):
-                  실행 트리거(웹 Jenkins REST · API workflow_dispatch) · 실패 일괄 분석(규칙→캐시→LLM 배치 1회) ·
-                  Slack 딥링크 · 앱 E2E 착수 블로커.
+                  <b style={{ color: TONE.ok.fg }}>✅ 구현됨</b>: 실패 일괄 분석(규칙→캐시→LLM 배치 1회) ·
+                  실행 트리거(웹 Jenkins REST · API workflow_dispatch, 승인 게이트).<br />
+                  <b className="text-[var(--tx-3)]">남은 것</b>: 조치 버튼 실동작 연결 · Slack 딥링크 · 앱 E2E 착수 블로커.
                 </div>
               </Card>
             </>
           )}
         </div>
       </div>
+
+      {trig && <TriggerModal s={trig} onConfirm={() => void confirmTrigger()} onClose={() => setTrig(null)} />}
     </div>
   );
 }
 
 // ─── 조각 ─────────────────────────────────────────────────────────────
 
-function AssetCard({ a }: { a: Asset }) {
+function AssetCard({
+  a,
+  trigger,
+  onTrigger,
+}: {
+  a: Asset;
+  trigger?: RunnerTrigger;
+  onTrigger: (runner: string, tier: string) => void;
+}) {
   const rate = a.total > 0 ? a.passed / a.total : 0;
   const tone: Tone = a.failed > 0 ? 'crit' : a.total === 0 ? 'idle' : 'ok';
   const t = TONE[tone];
+  const [tier, setTier] = useState(trigger?.tiers[0] ?? '');
   return (
     <div
       className="rounded-[13px] border p-3.5"
@@ -328,8 +405,89 @@ function AssetCard({ a }: { a: Asset }) {
         <div style={{ width: `${a.total > 0 ? (a.failed / a.total) * 100 : 0}%`, background: TONE.crit.fg }} />
         <div style={{ width: `${a.total > 0 ? (a.skipped / a.total) * 100 : 0}%`, background: 'var(--line-2)' }} />
       </div>
-      <div className="font-mono text-[9.5px] text-[var(--tx-3)] mt-2">
-        통과 {a.passed} · 실패 {a.failed} · 스킵 {a.skipped}
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <div className="font-mono text-[9.5px] text-[var(--tx-3)]">
+          통과 {a.passed} · 실패 {a.failed} · 스킵 {a.skipped}
+        </div>
+        {/* ▶ 실행 트리거 — 기존 CI 인프라를 부른다(직접 실행 X). 앱은 tiers 비어 미노출 */}
+        {trigger && trigger.tiers.length > 0 && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <select
+              value={tier}
+              onChange={(e) => setTier(e.target.value)}
+              className="font-mono text-[10px] rounded-[6px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] px-1.5 py-1 outline-none"
+              title={trigger.via}
+            >
+              {trigger.tiers.map((tr) => (
+                <option key={tr} value={tr}>{tr}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => onTrigger(a.runner, tier)}
+              className="px-2.5 py-1 rounded-[6px] text-[10.5px] font-[640] border text-white"
+              style={{ background: 'var(--accent-deep)', borderColor: 'var(--accent-deep)' }}
+              title={`${trigger.via}로 트리거 (승인 게이트 후 실행)`}
+            >
+              ▶ 실행
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 실행 트리거 승인 게이트 모달 ─────────────────────────────────────
+// 외부 CI를 실제로 부르기 전 마지막 확인. [실행]을 눌러야 confirm=true로 트리거된다.
+function TriggerModal({
+  s,
+  onConfirm,
+  onClose,
+}: {
+  s: TriggerModalState;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const done = s.result && !s.running;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'color-mix(in srgb, #000 55%, transparent)' }}>
+      <div className="w-full max-w-md rounded-[13px] border overflow-hidden" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
+        <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--line)' }}>
+          <div className="text-[13px] font-[640] text-[var(--tx-1)]">▶ 실행 트리거 — 확인</div>
+          <div className="text-[11px] text-[var(--tx-3)] mt-0.5">대시보드는 직접 실행하지 않고 기존 CI 인프라를 부릅니다</div>
+        </div>
+        <div className="p-4 flex flex-col gap-2.5">
+          <div className="flex items-center gap-2 text-[12px]">
+            <Pill tone="info">{s.via}</Pill>
+            <span className="font-mono text-[var(--tx-1)]">{s.runner}</span>
+            <span className="text-[var(--tx-3)]">TIER =</span>
+            <span className="font-mono font-bold" style={{ color: TONE.info.fg }}>{s.tier}</span>
+          </div>
+          <div className="text-[11.5px] text-[var(--tx-2)]" style={{ background: 'var(--inset)', padding: '8px 10px', borderRadius: 8 }}>
+            {s.message}
+          </div>
+          {!s.ready && (
+            <div className="text-[11px]" style={{ color: TONE.warn.fg }}>⚠ {s.note}</div>
+          )}
+          {s.result && (
+            <div className="text-[11.5px] font-[550]" style={{ color: 'var(--tx-1)' }}>{s.result}</div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t" style={{ borderColor: 'var(--line)' }}>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-[7px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] text-[11.5px] font-[640]">
+            {done ? '닫기' : '취소'}
+          </button>
+          {!done && (
+            <button
+              onClick={onConfirm}
+              disabled={!s.ready || s.running}
+              className="px-3.5 py-1.5 rounded-[7px] text-[11.5px] font-[640] border text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ background: 'var(--accent-deep)', borderColor: 'var(--accent-deep)' }}
+            >
+              {s.running ? '트리거 중…' : '실행'}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

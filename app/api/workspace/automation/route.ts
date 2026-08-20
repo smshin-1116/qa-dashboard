@@ -4,6 +4,7 @@ import type { FindingRow } from '@/lib/workspace/types';
 import { loadCatalog } from '@/lib/workspace/catalog';
 import { isAnalysisFresh } from '@/lib/workspace/fingerprint';
 import { analyzeFailures } from '@/lib/workspace/analyzeFailures';
+import { getTriggerConfig, triggerRun } from '@/lib/workspace/triggerRun';
 
 /**
  * GET /api/workspace/automation — 테스트 자동화 탭 데이터.
@@ -127,6 +128,7 @@ export async function GET() {
     queue,
     verdictTally,
     analysisStats,
+    triggers: getTriggerConfig(),
     xfailWatch,
     // QA 작업 인계분만 따로 셈 — 이 탭이 받은 신호 (인계 완결의 증거)
     handedFromWork: queue.filter((q) => q.fromWork).length,
@@ -139,17 +141,54 @@ export async function GET() {
  * GET(화면 로드)엔 LLM을 넣지 않는다는 원칙을 지키려 쓰기는 여기로 분리.
  */
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { action?: string };
-  if (body.action !== 'analyze') {
-    return NextResponse.json({ error: 'unknown action' }, { status: 400 });
+  const body = (await req.json().catch(() => ({}))) as {
+    action?: string;
+    runner?: 'web' | 'api' | 'app';
+    tier?: string;
+    confirm?: boolean;
+  };
+
+  // ── 실패 일괄 분석 ──────────────────────────────────────────────
+  if (body.action === 'analyze') {
+    try {
+      const result = await analyzeFailures();
+      return NextResponse.json({ ok: true, ...result });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : '분석 실패' }, { status: 500 });
+    }
   }
-  try {
-    const result = await analyzeFailures();
-    return NextResponse.json({ ok: true, ...result });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : '분석 실패' },
-      { status: 500 },
-    );
+
+  // ── 실행 트리거 (외부 CI 호출 — confirm 게이트) ─────────────────
+  if (body.action === 'trigger') {
+    const { runner, tier } = body;
+    if (!runner || !tier) {
+      return NextResponse.json({ error: 'runner·tier 필요' }, { status: 400 });
+    }
+    // confirm이 없으면 미리보기(게이트)만 — 실제 CI를 부르지 않는다
+    if (body.confirm !== true) {
+      const cfg = getTriggerConfig().find((t) => t.runner === runner);
+      if (!cfg) return NextResponse.json({ error: '알 수 없는 runner' }, { status: 400 });
+      return NextResponse.json({
+        ok: true,
+        preview: true,
+        runner,
+        tier,
+        via: cfg.via,
+        ready: cfg.ready,
+        note: cfg.note,
+        message: cfg.ready
+          ? `${cfg.via}로 ${runner} ${tier}를 실행합니다. [실행]을 누르면 실제 CI가 트리거됩니다.`
+          : `설정 미비 — ${cfg.note}`,
+      });
+    }
+    // confirm=true → 실제 트리거
+    try {
+      const result = await triggerRun(runner, tier);
+      return NextResponse.json({ ...result, preview: false });
+    } catch (e) {
+      return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : '트리거 실패' }, { status: 500 });
+    }
   }
+
+  return NextResponse.json({ error: 'unknown action' }, { status: 400 });
 }
