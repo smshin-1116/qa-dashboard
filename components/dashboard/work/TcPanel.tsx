@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Session } from '@/types/session';
+// 서식 있는 엑셀 산출물 — 서버 TC 데이터(실제 수행 결과 포함)로 빌드
+import { downloadStyledTcXlsx } from '@/lib/tcXlsx';
 
 /**
  * QA 작업 — 시안 "③~⑥ TC 작성 · ⑦ 수행" + "작업 종료" 카드.
@@ -143,14 +145,12 @@ interface ClosePreview {
 export default function TcPanel({
   session,
   refreshKey = 0,
-  onDownloadXlsx,
   onRunTc,
   running = false,
 }: {
   session: Session | null;
   /** 저장이 끝났을 때 바뀌는 값 — 목록을 다시 읽는 트리거 */
   refreshKey?: number;
-  onDownloadXlsx: () => void;
   /** 선택 TC를 Claude(Playwright)로 자동 수행 — 결과는 부모가 파싱해 기입한다.
    *  opts.condition이 있으면(재수행) 프롬프트 앞에 [재수행 조건]으로 주입된다. */
   onRunTc?: (
@@ -372,6 +372,56 @@ export default function TcPanel({
       })),
       { condition: cond || undefined },
     );
+  }
+
+  /**
+   * 서식 있는 엑셀 산출물 다운로드 — **서버 TC 데이터(tcs)** 로 빌드한다.
+   * 세션 메시지의 설계 표가 아니라 서버 행을 쓰므로, 수행 완료 후엔 **실제 결과·사유가
+   * 포함**된다. 설계 직후엔 결과가 Not Test로 나온다(정상). 열은 표준 11 + 수행 사유 +
+   * (있으면) 버그 티켓 + 임의 extra 열을 동적으로 구성한다.
+   */
+  async function downloadXlsx() {
+    if (tcs.length === 0) {
+      say('warn', '다운로드할 TC가 없습니다. TC를 먼저 생성해주세요.');
+      return;
+    }
+    const base = [
+      'TC-ID', '대분류', '중분류', '소분류', '검증단계', '전제조건',
+      '테스트 스텝', '기대결과', '플랫폼', '결과', '수행 사유',
+    ];
+    const hasBug = tcs.some((t) => t.bugTicket);
+    // extra 열(계정 역할 등) — 표준/비고와 겹치지 않는 것만, 등장 순서대로
+    const extraKeys = [...new Set(tcs.flatMap((t) => (t.extra ? Object.keys(t.extra) : [])))].filter(
+      (k) => !base.includes(k) && k !== '비고',
+    );
+    const columns = [...base, ...(hasBug ? ['버그 티켓'] : []), ...extraKeys, '비고'];
+    const rows = tcs.map((t) => ({
+      'TC-ID': t.localId,
+      대분류: t.category ?? '',
+      중분류: t.subCategory ?? '',
+      소분류: t.detailCategory ?? '',
+      검증단계: t.phase ?? '',
+      전제조건: t.precondition ?? '',
+      '테스트 스텝': t.steps ?? '',
+      기대결과: t.expected ?? '',
+      플랫폼: t.platform ?? '',
+      결과: t.result,
+      '수행 사유': t.note ?? '',
+      ...(hasBug ? { '버그 티켓': t.bugTicket ?? '' } : {}),
+      ...Object.fromEntries(extraKeys.map((k) => [k, t.extra?.[k] ?? ''])),
+      비고: t.extra?.['비고'] ?? '',
+    }));
+    const title = session?.title?.replace(/^▶\s*/, '') ?? 'TC';
+    const safe = title.replace(/[^\w가-힣]+/g, '_').replace(/^_+|_+$/g, '') || 'TC';
+    try {
+      await downloadStyledTcXlsx(
+        { title, columns, rows, wrapColumns: ['전제조건', '테스트 스텝', '기대결과', '수행 사유'] },
+        `TC_${safe}.xlsx`,
+      );
+      say('ok', `엑셀 다운로드 — TC ${tcs.length}건 (서식·결과 포함)`);
+    } catch (e) {
+      say('crit', `엑셀 생성 실패 — ${e instanceof Error ? e.message : '알 수 없음'}`);
+    }
   }
 
   // ── 수동 검증 (자동 수행과 짝) — 사람이 직접 판정 ────────────────────
@@ -671,7 +721,9 @@ export default function TcPanel({
                 ⚠ Fail {tcs.filter((t) => t.result === 'Fail' && !t.bugTicket).length}건 버그 등록
               </Btn>
             )}
-            <Btn onClick={onDownloadXlsx}>XLSX</Btn>
+            <Btn onClick={() => void downloadXlsx()} title="서식 있는 엑셀 산출물 — 수행 결과·사유 포함">
+              📊 엑셀 다운로드
+            </Btn>
             <Btn onClick={() => void openClose()} disabled={busy}>
               티켓 코멘트
             </Btn>

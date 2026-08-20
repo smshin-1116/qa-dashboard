@@ -1173,7 +1173,6 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
                   <TcPanel
                     session={activeSession}
                     refreshKey={tcSavedAt}
-                    onDownloadXlsx={handleDownloadXlsx}
                     onRunTc={handleRunTc}
                     running={isStreaming}
                   />
