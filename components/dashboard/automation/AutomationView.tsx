@@ -99,6 +99,15 @@ export default function AutomationView() {
   const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
   /** 실행 트리거 승인 게이트 모달 */
   const [trig, setTrig] = useState<TriggerModalState | null>(null);
+  /** 조치 모달 (수렴점) — 버그 등록·재실행·해소 처리 라우팅 */
+  const [act, setAct] = useState<{
+    q: QueueItem;
+    mode: 'menu' | 'bug';
+    draft: { summary: string; description: string } | null;
+    project: string;
+    busy: boolean;
+    result: string | null;
+  } | null>(null);
 
   const reload = () =>
     fetch('/api/workspace/automation', { cache: 'no-store' })
@@ -159,6 +168,56 @@ export default function AutomationView() {
       running: false,
       result: null,
     });
+  }
+
+  // ── 조치 (수렴점) ────────────────────────────────────────────────
+  function openAction(q: QueueItem) {
+    setAct({ q, mode: 'menu', draft: null, project: 'DV', busy: false, result: null });
+  }
+  /** 버그 등록 미리보기 — Jira에 쓰지 않고 초안만 받아 게이트로 보여준다 */
+  async function previewBug() {
+    if (!act) return;
+    setAct({ ...act, busy: true });
+    const res = await fetch('/api/workspace/automation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create-bug', id: act.q.id, project: act.project }),
+    });
+    const b = (await res.json()) as { draft?: { summary: string; description: string } };
+    setAct((a) => (a ? { ...a, mode: 'bug', draft: b.draft ?? null, busy: false } : a));
+  }
+  /** 게이트 [등록] → confirm=true로 실제 Jira 등록 + finding 해소 */
+  async function confirmBug() {
+    if (!act || act.busy) return;
+    setAct({ ...act, busy: true, result: '등록 중…' });
+    try {
+      const res = await fetch('/api/workspace/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create-bug', id: act.q.id, project: act.project, confirm: true }),
+      });
+      const b = (await res.json()) as { ok?: boolean; message?: string };
+      await reload();
+      setAct((a) => (a ? { ...a, busy: false, result: (b.ok ? '✅ ' : '❌ ') + (b.message ?? '') } : a));
+    } catch (e) {
+      setAct((a) => (a ? { ...a, busy: false, result: `❌ ${e instanceof Error ? e.message : '실패'}` } : a));
+    }
+  }
+  /** 해소 처리 — 수동 처리 완료로 큐에서 내림 */
+  async function resolveAction() {
+    if (!act || act.busy) return;
+    setAct({ ...act, busy: true, result: '해소 처리 중…' });
+    try {
+      await fetch('/api/workspace/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resolve', id: act.q.id }),
+      });
+      await reload();
+      setAct((a) => (a ? { ...a, busy: false, result: '✅ 해소 처리됨 — 큐에서 내림' } : a));
+    } catch (e) {
+      setAct((a) => (a ? { ...a, busy: false, result: `❌ ${e instanceof Error ? e.message : '실패'}` } : a));
+    }
   }
 
   /** 모달 [실행] → confirm=true로 실제 CI 트리거 */
@@ -310,7 +369,7 @@ export default function AutomationView() {
                           </Td>
                         </tr>
                       ) : (
-                        data.queue.map((q) => <QueueRow key={q.id} q={q} />)
+                        data.queue.map((q) => <QueueRow key={q.id} q={q} onAction={openAction} />)
                       )}
                     </tbody>
                   </table>
@@ -367,6 +426,150 @@ export default function AutomationView() {
       </div>
 
       {trig && <TriggerModal s={trig} onConfirm={() => void confirmTrigger()} onClose={() => setTrig(null)} />}
+
+      {act && (
+        <ActionModal
+          s={act}
+          onPreviewBug={() => void previewBug()}
+          onConfirmBug={() => void confirmBug()}
+          onResolve={() => void resolveAction()}
+          onProject={(p) => setAct((a) => (a ? { ...a, project: p } : a))}
+          onBack={() => setAct((a) => (a ? { ...a, mode: 'menu', result: null } : a))}
+          onRerun={() => {
+            const runner = act.q.runner;
+            setAct(null);
+            if (runner === 'web' || runner === 'api') void openTrigger(runner, 'smoke');
+          }}
+          onClose={() => setAct(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── 조치 모달 (수렴점) ───────────────────────────────────────────────
+// 조치 버튼 → 여기서 버그 등록(Jira·게이트)·재실행(트리거로)·해소 처리로 라우팅.
+// ①분석(신호 아래 표시)과 ②트리거(재실행)가 이 모달에서 만난다.
+function ActionModal({
+  s,
+  onPreviewBug,
+  onConfirmBug,
+  onResolve,
+  onProject,
+  onBack,
+  onRerun,
+  onClose,
+}: {
+  s: {
+    q: QueueItem;
+    mode: 'menu' | 'bug';
+    draft: { summary: string; description: string } | null;
+    project: string;
+    busy: boolean;
+    result: string | null;
+  };
+  onPreviewBug: () => void;
+  onConfirmBug: () => void;
+  onResolve: () => void;
+  onProject: (p: string) => void;
+  onBack: () => void;
+  onRerun: () => void;
+  onClose: () => void;
+}) {
+  const { q } = s;
+  const canRerun = q.runner === 'web' || q.runner === 'api';
+  const done = Boolean(s.result) && !s.busy && s.result?.startsWith('✅');
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'color-mix(in srgb, #000 55%, transparent)' }}>
+      <div className="w-full max-w-lg max-h-[86vh] flex flex-col rounded-[13px] border overflow-hidden" style={{ background: 'var(--panel)', borderColor: 'var(--line)' }}>
+        <div className="px-4 py-3 border-b flex items-center justify-between gap-2" style={{ borderColor: 'var(--line)' }}>
+          <div className="min-w-0">
+            <div className="text-[13px] font-[640] text-[var(--tx-1)] flex items-center gap-1.5">
+              <Pill tone={q.tone}>{q.label}</Pill> 조치
+            </div>
+            <div className="font-mono text-[10.5px] text-[var(--accent)] mt-0.5 truncate">{q.contractKey ?? q.target}</div>
+          </div>
+          <span className="font-mono text-[10px] text-[var(--tx-4)] shrink-0">추천: {q.action}</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2.5">
+          {/* 신호 + 분석 (①) */}
+          <div className="text-[11.5px] leading-[1.7]" style={{ background: 'var(--inset)', padding: '8px 10px', borderRadius: 8, color: 'var(--tx-2)' }}>
+            {(q.detail ?? '').replace(/^\[QA 작업\]\s*/, '') || '—'}
+            {q.analysis && (
+              <div className="mt-1.5 pl-2 border-l-2" style={{ borderColor: TONE.info.bd, color: 'var(--tx-3)' }}>
+                <b style={{ color: TONE.info.fg }}>🔍 분석</b> {q.analysis}
+              </div>
+            )}
+          </div>
+
+          {s.mode === 'bug' && s.draft ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="font-mono text-[9.5px] font-bold uppercase tracking-wider text-[var(--tx-4)]">등록될 버그 (미리보기)</div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10.5px] text-[var(--tx-3)]">보드</span>
+                {['DV', 'QI', 'RV'].map((p) => (
+                  <button key={p} onClick={() => onProject(p)}
+                    className="font-mono text-[10px] font-bold px-2 py-[3px] rounded-full border"
+                    style={s.project === p
+                      ? { color: '#fff', background: 'var(--accent-deep)', borderColor: 'var(--accent-deep)' }
+                      : { color: 'var(--tx-3)', background: 'var(--inset)', borderColor: 'var(--line-2)' }}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <div className="text-[12px] font-[600] text-[var(--tx-1)]">{s.draft.summary}</div>
+              <pre className="text-[10.5px] whitespace-pre-wrap font-mono text-[var(--tx-3)] max-h-[28vh] overflow-y-auto" style={{ background: 'var(--inset)', padding: '8px 10px', borderRadius: 8 }}>{s.draft.description}</pre>
+            </div>
+          ) : (
+            <div className="text-[11px] text-[var(--tx-3)]">
+              아래에서 조치를 고르세요. <b className="text-[var(--tx-2)]">버그 등록</b>은 Jira 쓰기(승인 게이트),
+              {canRerun ? ' 재실행은 CI 트리거로,' : ''} 코드/수동 처리 완료는 <b className="text-[var(--tx-2)]">해소 처리</b>로 큐에서 내립니다.
+            </div>
+          )}
+
+          {s.result && <div className="text-[11.5px] font-[550]" style={{ color: 'var(--tx-1)' }}>{s.result}</div>}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-t" style={{ borderColor: 'var(--line)' }}>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-[7px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] text-[11.5px] font-[640]">
+            {done ? '닫기' : '취소'}
+          </button>
+          {!done && (
+            <div className="flex gap-2">
+              {s.mode === 'bug' ? (
+                <>
+                  <button onClick={onBack} disabled={s.busy} className="px-3 py-1.5 rounded-[7px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] text-[11.5px] font-[640] disabled:opacity-40">뒤로</button>
+                  <button onClick={onConfirmBug} disabled={s.busy}
+                    className="px-3.5 py-1.5 rounded-[7px] text-[11.5px] font-[640] border text-white disabled:opacity-40"
+                    style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }}>
+                    {s.busy ? '등록 중…' : '버그 등록'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => void onResolve()} disabled={s.busy}
+                    className="px-3 py-1.5 rounded-[7px] border text-[11.5px] font-[640] disabled:opacity-40"
+                    style={{ borderColor: TONE.ok.bd, background: TONE.ok.bg, color: TONE.ok.fg }}>
+                    ✓ 해소 처리
+                  </button>
+                  {canRerun && (
+                    <button onClick={onRerun} disabled={s.busy}
+                      className="px-3 py-1.5 rounded-[7px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] text-[11.5px] font-[640] disabled:opacity-40">
+                      ⟳ 재실행
+                    </button>
+                  )}
+                  <button onClick={onPreviewBug} disabled={s.busy}
+                    className="px-3.5 py-1.5 rounded-[7px] text-[11.5px] font-[640] border text-white disabled:opacity-40"
+                    style={{ background: 'var(--accent-deep)', borderColor: 'var(--accent-deep)' }}>
+                    🐞 버그 등록
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -493,7 +696,7 @@ function TriggerModal({
   );
 }
 
-function QueueRow({ q }: { q: QueueItem }) {
+function QueueRow({ q, onAction }: { q: QueueItem; onAction: (q: QueueItem) => void }) {
   return (
     <tr className="border-b border-[var(--line)] last:border-b-0 hover:bg-[var(--panel)]">
       <Td>
@@ -527,8 +730,9 @@ function QueueRow({ q }: { q: QueueItem }) {
       <Td mono>{q.runner}</Td>
       <Td>
         <button
-          className="px-2 py-1 rounded-[6px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] text-[10.5px] font-semibold hover:text-white"
-          title="다음 단계에서 실제 동작 연결 예정"
+          onClick={() => onAction(q)}
+          className="px-2 py-1 rounded-[6px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] text-[10.5px] font-semibold hover:text-white hover:border-[var(--accent-deep)]"
+          title="조치 — 버그 등록·재실행·해소 처리"
         >
           {q.action}
         </button>

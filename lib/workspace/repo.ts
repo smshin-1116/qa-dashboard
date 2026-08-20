@@ -225,6 +225,19 @@ export function openFindings(limit = 50): FindingRow[] {
     .all(limit) as unknown as FindingRow[];
 }
 
+/** id로 단건 조회 (조치 모달·버그 초안 생성용) */
+export function findingById(id: number): FindingRow | null {
+  return (getDb().prepare(`SELECT * FROM finding WHERE id = ?`).get(id) as FindingRow | undefined) ?? null;
+}
+
+/**
+ * 단건 해소 처리 (2026-08-20) — 조치 완료(버그 등록·수동 처리)로 큐에서 내린다.
+ * 매일 도는 markResolvedExcept(러너 단위)와 별개로, 사람이 명시적으로 처리한 것.
+ */
+export function resolveFinding(id: number): void {
+  getDb().prepare(`UPDATE finding SET resolved_at = ? WHERE id = ?`).run(nowIso(), id);
+}
+
 /**
  * LLM 배치 분석 결과 기입 (2026-08-20).
  * analyzed_at을 갱신해 fingerprint 캐시(TTL 7일) 기준으로 재분석을 건너뛰게 한다.

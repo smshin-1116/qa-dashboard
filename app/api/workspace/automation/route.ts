@@ -1,10 +1,31 @@
 import { NextResponse } from 'next/server';
-import { latestRunsByRunner, openFindings } from '@/lib/workspace/repo';
+import { latestRunsByRunner, openFindings, findingById, resolveFinding } from '@/lib/workspace/repo';
 import type { FindingRow } from '@/lib/workspace/types';
 import { loadCatalog } from '@/lib/workspace/catalog';
 import { isAnalysisFresh } from '@/lib/workspace/fingerprint';
 import { analyzeFailures } from '@/lib/workspace/analyzeFailures';
 import { getTriggerConfig, triggerRun } from '@/lib/workspace/triggerRun';
+import { createBugs } from '@/lib/workspace/jiraComment';
+
+/** finding → Jira 버그 초안 (도메인 무관 — 실패 데이터로만 구성) */
+function bugDraftFromFinding(f: FindingRow) {
+  const target = f.node_id ?? f.contract_key ?? `finding-${f.id}`;
+  const summary = `[자동화 실패] ${target}${f.runner ? ` (${f.runner})` : ''}`;
+  const description = [
+    `러너: ${f.runner ?? '-'}`,
+    f.error_type ? `에러 유형: ${f.error_type}` : '',
+    f.contract_key ? `계약: ${f.contract_key}` : '',
+    f.occurrences ? `발생: ${f.occurrences}회` : '',
+    '',
+    `신호:\n${(f.detail ?? '').slice(0, 800)}`,
+    f.analysis ? `\n분석(LLM): ${f.analysis}` : '',
+    '',
+    '— QA Workspace 테스트 자동화에서 등록',
+  ]
+    .filter((l) => l !== '')
+    .join('\n');
+  return { tcId: f.id, localId: target, summary, description };
+}
 
 /**
  * GET /api/workspace/automation — 테스트 자동화 탭 데이터.
@@ -146,6 +167,8 @@ export async function POST(req: Request) {
     runner?: 'web' | 'api' | 'app';
     tier?: string;
     confirm?: boolean;
+    id?: number;
+    project?: string;
   };
 
   // ── 실패 일괄 분석 ──────────────────────────────────────────────
@@ -188,6 +211,36 @@ export async function POST(req: Request) {
     } catch (e) {
       return NextResponse.json({ ok: false, message: e instanceof Error ? e.message : '트리거 실패' }, { status: 500 });
     }
+  }
+
+  // ── 조치: 버그 등록 (외부 쓰기 — confirm 게이트) ────────────────
+  if (body.action === 'create-bug') {
+    if (!body.id) return NextResponse.json({ error: 'id 필요' }, { status: 400 });
+    const f = findingById(body.id);
+    if (!f) return NextResponse.json({ error: 'finding 없음' }, { status: 404 });
+    const project = body.project ?? 'DV';
+    const draft = bugDraftFromFinding(f);
+    // 미리보기 — Jira에 쓰지 않는다
+    if (body.confirm !== true) {
+      return NextResponse.json({ ok: true, preview: true, project, draft });
+    }
+    // 실제 등록 → 성공 시 finding 해소(큐에서 내림, Jira로 추적 이관)
+    const [res] = await createBugs(project, [draft]);
+    if (res?.ok) resolveFinding(f.id);
+    return NextResponse.json({
+      ok: Boolean(res?.ok),
+      preview: false,
+      key: res?.key,
+      url: res?.url,
+      message: res?.ok ? `${res.key} 등록됨 — 큐에서 해소` : `등록 실패: ${res?.error ?? '알 수 없음'}`,
+    });
+  }
+
+  // ── 조치: 해소 처리 (수동 처리 완료 → 큐에서 내림) ─────────────
+  if (body.action === 'resolve') {
+    if (!body.id) return NextResponse.json({ error: 'id 필요' }, { status: 400 });
+    resolveFinding(body.id);
+    return NextResponse.json({ ok: true, message: '해소 처리됨 — 큐에서 내림' });
   }
 
   return NextResponse.json({ error: 'unknown action' }, { status: 400 });
