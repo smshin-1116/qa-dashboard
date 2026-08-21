@@ -103,7 +103,8 @@ export default function AutomationView() {
   const [act, setAct] = useState<{
     q: QueueItem;
     mode: 'menu' | 'bug';
-    draft: { summary: string; description: string } | null;
+    draft: { summary: string; description: string; sections?: unknown; labels?: string[] } | null;
+    deep: boolean; // 심층 분석 초안인지
     project: string;
     busy: boolean;
     result: string | null;
@@ -172,9 +173,29 @@ export default function AutomationView() {
 
   // ── 조치 (수렴점) ────────────────────────────────────────────────
   function openAction(q: QueueItem) {
-    setAct({ q, mode: 'menu', draft: null, project: 'DV', busy: false, result: null });
+    setAct({ q, mode: 'menu', draft: null, deep: false, project: 'DV', busy: false, result: null });
   }
-  /** 버그 등록 미리보기 — Jira에 쓰지 않고 초안만 받아 게이트로 보여준다 */
+  /** 심층 분석 — 소스까지 읽어 원인(코드)을 채운 초안. 무거운 에이전트 호출(최대 1~2분) */
+  async function deepAnalyze() {
+    if (!act || act.busy) return;
+    setAct({ ...act, busy: true, result: '🔬 소스 분석 중… 테스트·제품 repo 확인 (최대 1~2분)' });
+    try {
+      const res = await fetch('/api/workspace/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deep-analyze', id: act.q.id }),
+      });
+      const b = (await res.json()) as { ok?: boolean; summary?: string; description?: string; sections?: unknown; labels?: string[]; error?: string };
+      if (!b.ok) throw new Error(b.error ?? '분석 실패');
+      setAct((a) =>
+        a ? { ...a, mode: 'bug', deep: true, busy: false, result: null,
+              draft: { summary: b.summary ?? '', description: b.description ?? '', sections: b.sections, labels: b.labels } } : a,
+      );
+    } catch (e) {
+      setAct((a) => (a ? { ...a, busy: false, result: `❌ 심층 분석 실패 — ${e instanceof Error ? e.message : '알 수 없음'} (빠른 등록으로 대체 가능)` } : a));
+    }
+  }
+  /** 빠른 등록 미리보기 — 소스 분석 없이 얕은 초안(원인 미확정) */
   async function previewBug() {
     if (!act) return;
     setAct({ ...act, busy: true });
@@ -183,10 +204,10 @@ export default function AutomationView() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'create-bug', id: act.q.id, project: act.project }),
     });
-    const b = (await res.json()) as { draft?: { summary: string; description: string } };
-    setAct((a) => (a ? { ...a, mode: 'bug', draft: b.draft ?? null, busy: false } : a));
+    const b = (await res.json()) as { draft?: { summary: string; description: string; sections?: unknown; labels?: string[] } };
+    setAct((a) => (a ? { ...a, mode: 'bug', deep: false, draft: b.draft ?? null, busy: false } : a));
   }
-  /** 게이트 [등록] → confirm=true로 실제 Jira 등록 + finding 해소 */
+  /** 게이트 [등록] → confirm=true로 실제 Jira 등록 + finding 해소 (심층 초안이면 그걸로) */
   async function confirmBug() {
     if (!act || act.busy) return;
     setAct({ ...act, busy: true, result: '등록 중…' });
@@ -194,7 +215,15 @@ export default function AutomationView() {
       const res = await fetch('/api/workspace/automation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create-bug', id: act.q.id, project: act.project, confirm: true }),
+        body: JSON.stringify({
+          action: 'create-bug',
+          id: act.q.id,
+          project: act.project,
+          confirm: true,
+          ...(act.deep && act.draft
+            ? { summary: act.draft.summary, sections: act.draft.sections, labels: act.draft.labels }
+            : {}),
+        }),
       });
       const b = (await res.json()) as { ok?: boolean; message?: string };
       await reload();
@@ -430,6 +459,7 @@ export default function AutomationView() {
       {act && (
         <ActionModal
           s={act}
+          onDeep={() => void deepAnalyze()}
           onPreviewBug={() => void previewBug()}
           onConfirmBug={() => void confirmBug()}
           onResolve={() => void resolveAction()}
@@ -452,6 +482,7 @@ export default function AutomationView() {
 // ①분석(신호 아래 표시)과 ②트리거(재실행)가 이 모달에서 만난다.
 function ActionModal({
   s,
+  onDeep,
   onPreviewBug,
   onConfirmBug,
   onResolve,
@@ -463,11 +494,13 @@ function ActionModal({
   s: {
     q: QueueItem;
     mode: 'menu' | 'bug';
-    draft: { summary: string; description: string } | null;
+    draft: { summary: string; description: string; sections?: unknown; labels?: string[] } | null;
+    deep: boolean;
     project: string;
     busy: boolean;
     result: string | null;
   };
+  onDeep: () => void;
   onPreviewBug: () => void;
   onConfirmBug: () => void;
   onResolve: () => void;
@@ -505,7 +538,10 @@ function ActionModal({
 
           {s.mode === 'bug' && s.draft ? (
             <div className="flex flex-col gap-1.5">
-              <div className="font-mono text-[9.5px] font-bold uppercase tracking-wider text-[var(--tx-4)]">등록될 버그 (미리보기)</div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[9.5px] font-bold uppercase tracking-wider text-[var(--tx-4)]">등록될 버그 (미리보기)</span>
+                <Pill tone={s.deep ? 'ok' : 'warn'}>{s.deep ? '🔬 심층 분석' : '얕은 초안 (원인 미확정)'}</Pill>
+              </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10.5px] text-[var(--tx-3)]">보드</span>
                 {['DV', 'QI', 'RV'].map((p) => (
@@ -560,9 +596,15 @@ function ActionModal({
                     </button>
                   )}
                   <button onClick={onPreviewBug} disabled={s.busy}
+                    className="px-3 py-1.5 rounded-[7px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-3)] text-[11.5px] font-[640] disabled:opacity-40"
+                    title="소스 분석 없이 얕은 초안(원인 미확정)으로 빠르게">
+                    빠른 등록
+                  </button>
+                  <button onClick={onDeep} disabled={s.busy}
                     className="px-3.5 py-1.5 rounded-[7px] text-[11.5px] font-[640] border text-white disabled:opacity-40"
-                    style={{ background: 'var(--accent-deep)', borderColor: 'var(--accent-deep)' }}>
-                    🐞 버그 등록
+                    style={{ background: 'var(--accent-deep)', borderColor: 'var(--accent-deep)' }}
+                    title="테스트 소스+제품 repo를 읽어 원인(코드)까지 채운다 (최대 1~2분)">
+                    🔬 심층 분석 후 등록
                   </button>
                 </>
               )}

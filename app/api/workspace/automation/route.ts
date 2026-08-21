@@ -7,6 +7,7 @@ import { analyzeFailures } from '@/lib/workspace/analyzeFailures';
 import { getTriggerConfig, triggerRun } from '@/lib/workspace/triggerRun';
 import { createBugs } from '@/lib/workspace/jiraComment';
 import { bugSectionsToMarkdown, bugLabels, type BugSections } from '@/lib/workspace/bugTemplate';
+import { deepAnalyzeFinding } from '@/lib/workspace/deepAnalyzeFinding';
 
 /**
  * finding → 구조화 버그 초안 (DV-647 형식). 도메인 무관 — 실패 데이터로만 구성.
@@ -186,6 +187,10 @@ export async function POST(req: Request) {
     confirm?: boolean;
     id?: number;
     project?: string;
+    /** 심층 분석 결과(있으면 이걸로 등록 — 얕은 자동 초안 대신) */
+    summary?: string;
+    sections?: BugSections;
+    labels?: string[];
   };
 
   // ── 실패 일괄 분석 ──────────────────────────────────────────────
@@ -230,13 +235,48 @@ export async function POST(req: Request) {
     }
   }
 
+  // ── 조치: 심층 분석 (소스까지 읽어 버그 근거 생성 — 온디맨드 에이전트) ──
+  if (body.action === 'deep-analyze') {
+    if (!body.id) return NextResponse.json({ error: 'id 필요' }, { status: 400 });
+    const f = findingById(body.id);
+    if (!f) return NextResponse.json({ error: 'finding 없음' }, { status: 404 });
+    try {
+      const { result: deep, raw } = await deepAnalyzeFinding(f);
+      if (!deep)
+        return NextResponse.json({
+          ok: false,
+          error: '분석 결과(JSON)를 읽지 못함 — 얕은 초안으로 등록 가능',
+          raw: raw.slice(-600),
+        });
+      return NextResponse.json({
+        ok: true,
+        summary: deep.summary,
+        sections: deep.sections,
+        description: bugSectionsToMarkdown(deep.sections),
+        labels: bugLabels(['test', f.runner === 'api' ? 'api-automation' : 'e2e'], deep.sections.confidence),
+      });
+    } catch (e) {
+      return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : '심층 분석 실패' }, { status: 500 });
+    }
+  }
+
   // ── 조치: 버그 등록 (외부 쓰기 — confirm 게이트) ────────────────
   if (body.action === 'create-bug') {
     if (!body.id) return NextResponse.json({ error: 'id 필요' }, { status: 400 });
     const f = findingById(body.id);
     if (!f) return NextResponse.json({ error: 'finding 없음' }, { status: 404 });
     const project = body.project ?? 'DV';
-    const draft = bugDraftFromFinding(f);
+    // 심층 분석 결과가 넘어오면 그걸로, 아니면 얕은 자동 초안
+    const draft = body.sections
+      ? {
+          tcId: f.id,
+          localId: f.node_id ?? `finding-${f.id}`,
+          summary: body.summary ?? bugDraftFromFinding(f).summary,
+          description: bugSectionsToMarkdown(body.sections),
+          sections: body.sections,
+          labels: body.labels ?? bugLabels([], body.sections.confidence),
+        }
+      : bugDraftFromFinding(f);
     // 미리보기 — Jira에 쓰지 않는다
     if (body.confirm !== true) {
       return NextResponse.json({ ok: true, preview: true, project, draft });
