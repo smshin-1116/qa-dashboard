@@ -809,3 +809,94 @@ export function pruneNotices(kind: NoticeKind, seenKeys: string[]): void {
   const ph = seenKeys.map(() => '?').join(',');
   db.prepare(`DELETE FROM notice WHERE kind = ? AND key NOT IN (${ph})`).run(kind, ...seenKeys);
 }
+
+// ─── risk_pattern ──────────────────────────────────────────────────────
+// 이 제품이 반복적으로 틀리는 가정/방식을 증거와 함께 축적 (qa-oracle DESIGN).
+
+export interface RiskPatternRow {
+  id: number;
+  ref: string | null;
+  title: string;
+  category: string | null;
+  status: string; // candidate | confirmed | retired
+  severity: string | null;
+  symptom: string | null;
+  root_assumption: string | null;
+  evidence: string | null; // JSON
+  detector: string | null; // JSON
+  check_questions: string | null; // JSON
+  created_at: string;
+  updated_at: string;
+}
+
+/** 상태 우선순위(confirmed→candidate→retired) 후 최신순 */
+export function listRiskPatterns(): RiskPatternRow[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM risk_pattern
+       ORDER BY CASE status WHEN 'confirmed' THEN 0 WHEN 'candidate' THEN 1 ELSE 2 END, id DESC`,
+    )
+    .all() as unknown as RiskPatternRow[];
+}
+
+/** 다음 RP-NNN 번호 */
+export function nextRiskRef(): string {
+  const rows = getDb().prepare(`SELECT ref FROM risk_pattern WHERE ref LIKE 'RP-%'`).all() as Array<{ ref: string }>;
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt((r.ref ?? '').replace(/^RP-/, ''), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `RP-${String(max + 1).padStart(3, '0')}`;
+}
+
+export interface RiskPatternInput {
+  ref?: string | null;
+  title: string;
+  category?: string | null;
+  status?: string;
+  severity?: string | null;
+  symptom?: string | null;
+  rootAssumption?: string | null;
+  evidence?: unknown;
+  detector?: unknown;
+  checkQuestions?: unknown;
+}
+
+/** 리스크 패턴 저장(신규). ref 없으면 자동 채번. */
+export function insertRiskPattern(input: RiskPatternInput): number {
+  const now = nowIso();
+  const r = getDb()
+    .prepare(
+      `INSERT INTO risk_pattern
+         (ref, title, category, status, severity, symptom, root_assumption, evidence, detector, check_questions, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.ref ?? nextRiskRef(),
+      input.title,
+      input.category ?? null,
+      input.status ?? 'candidate',
+      input.severity ?? null,
+      input.symptom ?? null,
+      input.rootAssumption ?? null,
+      input.evidence ? JSON.stringify(input.evidence) : null,
+      input.detector ? JSON.stringify(input.detector) : null,
+      input.checkQuestions ? JSON.stringify(input.checkQuestions) : null,
+      now,
+      now,
+    );
+  return Number(r.lastInsertRowid);
+}
+
+/** candidate → confirmed / retired (사람이 확정) */
+export function setRiskPatternStatus(id: number, status: 'candidate' | 'confirmed' | 'retired'): void {
+  getDb().prepare(`UPDATE risk_pattern SET status = ?, updated_at = ? WHERE id = ?`).run(status, nowIso(), id);
+}
+
+/** 리스크 패턴 추출용 — DV 버그 티켓 요약 목록 (최신순) */
+export function bugTicketsForExtract(limit = 60): Array<{ key: string; summary: string | null; labels: string | null }> {
+  return getDb()
+    .prepare(`SELECT jira_key AS key, summary, labels FROM ticket_link WHERE jira_key LIKE 'DV-%' ORDER BY updated_at DESC LIMIT ?`)
+    .all(limit) as Array<{ key: string; summary: string | null; labels: string | null }>;
+}

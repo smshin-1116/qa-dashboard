@@ -110,6 +110,18 @@ export const WORKSPACES: WorkspaceConfig[] = [
     panelTabs: [],
   },
   {
+    key: 'risk',
+    path: '/dashboard/risk',
+    label: '리스크',
+    icon: '◈',
+    sidebarLabel: '리스크 패턴',
+    description: '이 제품이 반복적으로 틀리는 가정/방식을 증거와 함께 축적 (증거 없으면 카드 없음)',
+    layout: 'board',
+    defaultAgentMode: 'general',
+    agentModes: ['general'],
+    panelTabs: [],
+  },
+  {
     key: 'receipt',
     path: '/dashboard/receipt',
     label: '인수증 생성',

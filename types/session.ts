@@ -10,7 +10,7 @@ export type AgentMode = 'general' | 'designer' | 'writer' | 'reviewer' | 'fixer'
  * **일회성 작업(㉮) / 영구 자산(㉯)** 이다. 분석·TC 작성·수행은 전부 ㉮ 한 흐름이므로
  * 한 화면에 둔다. 기존 세션은 로드 시 자동 이관된다 (`useSessionStore`의 `RENAMED_KINDS`).
  */
-export type WorkspaceKind = 'today' | 'work' | 'auto' | 'receipt';
+export type WorkspaceKind = 'today' | 'work' | 'auto' | 'risk' | 'receipt';
 
 export type MessageRole = 'user' | 'assistant';
 

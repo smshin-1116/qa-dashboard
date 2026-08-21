@@ -24,7 +24,7 @@
  *   그전까지 TC는 채팅 메시지 안 마크다운 표에만 있어서
  *   판정·테스트 참조·수행 결과를 붙일 자리가 없었다.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const DDL = `
 -- ─────────────────────────────────────────────────────────────────────
@@ -266,4 +266,23 @@ CREATE TABLE IF NOT EXISTS token_usage (
   created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_token_day ON token_usage (day, model);
+
+-- risk_pattern : 이 제품이 반복적으로 틀리는 가정/방식을 증거와 함께 축적 (qa-oracle DESIGN)
+-- 개별 버그(finding/ticket)가 아니라 "패턴". 증거 없으면 카드 없음(추측 배제).
+CREATE TABLE IF NOT EXISTS risk_pattern (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  ref             TEXT UNIQUE,                     -- RP-001 등 (사람이 읽는 ID)
+  title           TEXT NOT NULL,
+  category        TEXT,                            -- null-assumption 등 재사용 결함 클래스
+  status          TEXT NOT NULL DEFAULT 'candidate', -- candidate | confirmed | retired
+  severity        TEXT,                            -- high | medium | low
+  symptom         TEXT,                            -- 사용자에게 어떻게 나타나나
+  root_assumption TEXT,                            -- 반복되는 잘못된 가정
+  evidence        TEXT,                            -- JSON {jira_bugs[], datadog[], occurrences, last_seen}
+  detector        TEXT,                            -- JSON {code_smells[], diff_signals[], keywords[]}
+  check_questions TEXT,                            -- JSON [] — PR에 물어볼 대조 질문
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_risk_status ON risk_pattern (status);
 `;
