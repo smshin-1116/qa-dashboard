@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { latestRunsByRunner, openFindings, findingById, resolveFinding } from '@/lib/workspace/repo';
+import { latestRunsByRunner, openFindings, findingById, resolveFinding, latestEnvHealth, passRateTrend } from '@/lib/workspace/repo';
 import type { FindingRow } from '@/lib/workspace/types';
 import { loadCatalog } from '@/lib/workspace/catalog';
 import { isAnalysisFresh } from '@/lib/workspace/fingerprint';
@@ -168,6 +168,13 @@ export async function GET() {
     verdictTally,
     analysisStats,
     triggers: getTriggerConfig(),
+    // 7일 추이(통과율 스파크라인) + 환경 건강도(env-health 신호)
+    trend: passRateTrend(7).map((d) => ({
+      day: d.day,
+      rate: d.total > 0 ? Math.round((d.passed / d.total) * 100) : 0,
+      failed: d.failed,
+    })),
+    envHealth: latestEnvHealth(),
     xfailWatch,
     // QA 작업 인계분만 따로 셈 — 이 탭이 받은 신호 (인계 완결의 증거)
     handedFromWork: queue.filter((q) => q.fromWork).length,

@@ -157,6 +157,32 @@ export function latestRunsByRunner(): TestRunRow[] {
     .all() as unknown as TestRunRow[];
 }
 
+/** 최근 env-health 신호 (차량 풀 고갈 등 환경 전제 상태). 없으면 null = 정상 */
+export function latestEnvHealth(): { title: string; detail: string | null; observedAt: string | null } | null {
+  const r = getDb()
+    .prepare(
+      `SELECT title, detail, observed_at FROM signal
+       WHERE source = 'api-test' AND kind = 'env-health'
+         AND observed_at >= datetime('now', '-2 days')
+       ORDER BY observed_at DESC LIMIT 1`,
+    )
+    .get() as { title: string; detail: string | null; observed_at: string | null } | undefined;
+  return r ? { title: r.title, detail: r.detail, observedAt: r.observed_at } : null;
+}
+
+/** 최근 N일 통과율 추이 — 러너 합산 일자별 (스파크라인용) */
+export function passRateTrend(days = 7): Array<{ day: string; passed: number; total: number; failed: number }> {
+  return getDb()
+    .prepare(
+      `SELECT date(COALESCE(started_at, collected_at)) AS day,
+              SUM(passed) AS passed, SUM(total) AS total, SUM(failed) AS failed
+       FROM test_run
+       WHERE COALESCE(started_at, collected_at) >= datetime('now', ?)
+       GROUP BY day ORDER BY day ASC`,
+    )
+    .all(`-${days} days`) as Array<{ day: string; passed: number; total: number; failed: number }>;
+}
+
 // ─── finding ──────────────────────────────────────────────────────────
 
 export interface FindingInput {

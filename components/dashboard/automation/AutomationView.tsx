@@ -84,6 +84,8 @@ interface Payload {
   verdictTally: { rule: number; cache: number; llm: number };
   analysisStats: { needAnalysis: number; cached: number };
   triggers: RunnerTrigger[];
+  trend: Array<{ day: string; rate: number; failed: number }>;
+  envHealth: { title: string; detail: string | null; observedAt: string | null } | null;
   xfailWatch: Array<{ target: string; detail: string | null; contractKey: string | null }>;
   handedFromWork: number;
 }
@@ -489,6 +491,38 @@ export default function AutomationView() {
                     ))
                   )}
                 </div>
+              </Card>
+
+              {/* ══ 7일 추이 · 환경 건강도 ══════════════════════════ */}
+              <SectionLabel>7일 추이 · 환경 건강도</SectionLabel>
+              <Card stripe={data.envHealth ? 'warn' : 'ok'}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] text-[var(--tx-3)] mb-1.5">통과율 추이 (최근 7일 · 러너 합산)</div>
+                    <Sparkline points={data.trend} />
+                    <div className="flex justify-between font-mono text-[9px] text-[var(--tx-4)] mt-1">
+                      <span>{data.trend[0]?.day ?? ''}</span>
+                      <span>{data.trend[data.trend.length - 1]?.day ?? ''}</span>
+                    </div>
+                  </div>
+                  <div className="w-[220px] shrink-0">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="text-[11px] font-[640] text-[var(--tx-1)]">환경 건강도</span>
+                      <Pill tone={data.envHealth ? 'warn' : 'ok'}>{data.envHealth ? '위험' : '정상'}</Pill>
+                    </div>
+                    {data.envHealth ? (
+                      <div className="text-[10.5px] leading-[1.6]" style={{ color: 'var(--tx-3)' }}>
+                        <b style={{ color: TONE.warn.fg }}>{data.envHealth.title}</b>
+                        {data.envHealth.detail && <div className="mt-0.5">{data.envHealth.detail}</div>}
+                      </div>
+                    ) : (
+                      <div className="text-[10.5px] text-[var(--tx-3)]">최근 2일 환경 전제 실패 신호 없음.</div>
+                    )}
+                  </div>
+                </div>
+                <Quote tone="idle">
+                  <b className="text-[var(--tx-3)]">env_health.py</b> — stage 리소스(차량 풀·잔존 경로) 상태. 고갈 시 그날 회귀가 통째로 무의미해져 P0로 다룬다.
+                </Quote>
               </Card>
 
               {/* 다음 단계 안내 — 완료분/남은분을 흐리게 두지 않는다 */}
@@ -943,6 +977,32 @@ function QueueRow({ q, onAction }: { q: QueueItem; onAction: (q: QueueItem) => v
         </button>
       </Td>
     </tr>
+  );
+}
+
+// ─── 통과율 스파크라인 (7일) ──────────────────────────────────────────
+function Sparkline({ points }: { points: Array<{ day: string; rate: number; failed: number }> }) {
+  if (points.length === 0) {
+    return <div className="h-[48px] flex items-center text-[10px] text-[var(--tx-4)]">추이 데이터 없음</div>;
+  }
+  const W = 100, H = 40, pad = 2;
+  const n = points.length;
+  const x = (i: number) => (n === 1 ? W / 2 : pad + (i / (n - 1)) * (W - pad * 2));
+  const y = (r: number) => H - pad - (r / 100) * (H - pad * 2);
+  const line = points.map((p, i) => `${x(i)},${y(p.rate)}`).join(' ');
+  const area = `${x(0)},${H} ${line} ${x(n - 1)},${H}`;
+  const last = points[n - 1];
+  const stroke = last.failed > 0 ? TONE.warn.fg : TONE.ok.fg;
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-[48px] block">
+        <polygon points={area} fill={`color-mix(in srgb, ${stroke} 12%, transparent)`} />
+        <polyline points={line} fill="none" stroke={stroke} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span className="absolute top-0 right-0 font-mono text-[11px] font-[660]" style={{ color: stroke }}>
+        {last.rate}%
+      </span>
+    </div>
   );
 }
 
