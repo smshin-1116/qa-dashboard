@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import DashboardHeader from '@/components/dashboard/header/DashboardHeader';
 import type { AIModel } from '@/types/session';
 
@@ -113,6 +114,14 @@ export default function AutomationView() {
   const [trig, setTrig] = useState<TriggerModalState | null>(null);
   /** 유지보수 큐 상단 [분류 규칙] 토글 */
   const [showRules, setShowRules] = useState(false);
+  /** Slack 딥링크 진입 — ?focus=fail 이면 유지보수 큐를 실패만 보여주고 그리로 스크롤 */
+  const focusFail = useSearchParams().get('focus') === 'fail';
+  const [showAllQueue, setShowAllQueue] = useState(false);
+  const queueRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    // 데이터 로드 후, Slack에서 진입했으면 유지보수 큐로 스크롤
+    if (focusFail && data) queueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [focusFail, data]);
   /** 조치 모달 (수렴점) — 버그 등록·재실행·해소 처리 라우팅 */
   const [act, setAct] = useState<{
     q: QueueItem;
@@ -344,6 +353,17 @@ export default function AutomationView() {
 
               {/* ══ B. 유지보수 큐 ════════════════════════════════ */}
               <SectionLabel>유지보수 큐</SectionLabel>
+              <div ref={queueRef}>
+              {/* Slack 딥링크 진입 배너 — 실패만 보여주는 중 */}
+              {focusFail && !showAllQueue && (
+                <div
+                  className="flex items-center justify-between gap-2 px-3 py-2 mb-2 rounded-[9px] border text-[11.5px]"
+                  style={{ borderColor: TONE.info.bd, background: TONE.info.bg, color: TONE.info.fg }}
+                >
+                  <span>⚡ Slack에서 진입 — <b>실패만</b> 표시 중 (수정 확인 항목 숨김)</span>
+                  <button onClick={() => setShowAllQueue(true)} className="font-mono text-[10.5px] underline shrink-0">전체 보기</button>
+                </div>
+              )}
               <Card stripe="warn">
                 <div className="flex items-start justify-between gap-2.5 mb-2.5">
                   <div>
@@ -440,15 +460,24 @@ export default function AutomationView() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.queue.length === 0 ? (
-                        <tr>
-                          <Td colSpan={6}>
-                            <span className="text-[var(--tx-3)]">열린 실패·공백이 없습니다 — 회귀 전건 통과</span>
-                          </Td>
-                        </tr>
-                      ) : (
-                        data.queue.map((q) => <QueueRow key={q.id} q={q} onAction={openAction} />)
-                      )}
+                      {(() => {
+                        // Slack 딥링크 진입(focus=fail)이면 수정 확인(XPASS·해소 신호)은 숨기고 실패만.
+                        const rows =
+                          focusFail && !showAllQueue
+                            ? data.queue.filter((q) => q.kind !== 'fix-confirmed')
+                            : data.queue;
+                        return rows.length === 0 ? (
+                          <tr>
+                            <Td colSpan={6}>
+                              <span className="text-[var(--tx-3)]">
+                                {focusFail && !showAllQueue ? '표시할 실패가 없습니다' : '열린 실패·공백이 없습니다 — 회귀 전건 통과'}
+                              </span>
+                            </Td>
+                          </tr>
+                        ) : (
+                          rows.map((q) => <QueueRow key={q.id} q={q} onAction={openAction} />)
+                        );
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -462,6 +491,7 @@ export default function AutomationView() {
                   걸러내고, 같은 실패는 fingerprint 캐시로 재분석하지 않는다.
                 </Quote>
               </Card>
+              </div>
 
               {/* ══ C. 회귀 감시 xfail ════════════════════════════ */}
               <SectionLabel>회귀 감시 · xfail(strict)</SectionLabel>
