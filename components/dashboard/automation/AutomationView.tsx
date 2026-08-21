@@ -33,6 +33,16 @@ const TONE = {
 } as const;
 type Tone = keyof typeof TONE;
 
+/** 유지보수 큐 6종 분류 규칙 — [분류 규칙] 토글에 표시 (route의 KIND_META와 같은 어휘) */
+const KIND_RULES: Array<{ kind: string; label: string; tone: Tone; how: string; action: string }> = [
+  { kind: 'fix-confirmed', label: '수정 확인', tone: 'ok', how: 'xfail이 통과로 뒤집힘', action: '기대값 정상화' },
+  { kind: 'contract-drift', label: '계약 드리프트', tone: 'info', how: 'API 스키마·상태코드 어긋남', action: 'matrix 갱신' },
+  { kind: 'bug-candidate', label: '버그 후보', tone: 'crit', how: '제품 버그 의심 실패', action: '/create-bug' },
+  { kind: 'selector-drift', label: '셀렉터 드리프트', tone: 'warn', how: '셀렉터·타임아웃(테스트 낡음)', action: '화면 실측' },
+  { kind: 'unstable', label: '불안정', tone: 'idle', how: '재현 불안정·환경 전제 실패', action: '단독 재실행' },
+  { kind: 'coverage-gap', label: '커버 공백', tone: 'info', how: '검증 공백(QA 작업 인계)', action: '스켈레톤 생성' },
+];
+
 interface Asset {
   runner: string;
   label: string;
@@ -99,6 +109,8 @@ export default function AutomationView() {
   const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
   /** 실행 트리거 승인 게이트 모달 */
   const [trig, setTrig] = useState<TriggerModalState | null>(null);
+  /** 유지보수 큐 상단 [분류 규칙] 토글 */
+  const [showRules, setShowRules] = useState(false);
   /** 조치 모달 (수렴점) — 버그 등록·재실행·해소 처리 라우팅 */
   const [act, setAct] = useState<{
     q: QueueItem;
@@ -270,7 +282,11 @@ export default function AutomationView() {
     <div className="flex flex-col h-screen bg-[var(--ground)]">
       <DashboardHeader activeModel={model} onModelChange={setModel} activeWorkspaceKey="auto" />
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex">
+        {/* ── 왼쪽 레일 — 자산 요약·판정 경로 범례 (시안: 카탈로그 요약) ── */}
+        <AutoRail data={data} />
+
+        <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-6xl mx-auto w-full p-4 flex flex-col gap-3.5">
           {/* 헤더 라벨 */}
           <div>
@@ -320,6 +336,10 @@ export default function AutomationView() {
                 )}
               </div>
 
+              {/* ══ 실행 트리거 — 직접 실행 X, 기존 CI 인프라를 부른다 ══ */}
+              <SectionLabel>실행 트리거</SectionLabel>
+              <TriggerCard triggers={data.triggers} onTrigger={openTrigger} />
+
               {/* ══ B. 유지보수 큐 ════════════════════════════════ */}
               <SectionLabel>유지보수 큐</SectionLabel>
               <Card stripe="warn">
@@ -333,13 +353,32 @@ export default function AutomationView() {
                       코드 변경은 항상 사람 승인 후
                     </div>
                   </div>
-                  {/* 판정 경로 집계 — 토큰이 어디서 드는지 (시안의 핵심 장치) */}
+                  {/* 판정 경로 집계 + 분류 규칙 (시안: 우상단 [분류 규칙]) */}
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     <Pill tone="ok">규칙 {data.verdictTally.rule}</Pill>
                     <Pill tone="idle">캐시 {data.verdictTally.cache}</Pill>
                     <Pill tone="info">LLM {data.verdictTally.llm}</Pill>
+                    <button
+                      onClick={() => setShowRules((v) => !v)}
+                      className="px-2 py-1 rounded-[6px] border border-[var(--line-2)] bg-[var(--inset)] text-[var(--tx-2)] text-[10.5px] font-semibold hover:text-white hover:border-[var(--accent-deep)]"
+                    >
+                      분류 규칙 {showRules ? '▾' : '▸'}
+                    </button>
                   </div>
                 </div>
+
+                {/* 6종 분류 규칙 — 무슨 유형이 어떻게 판정되고 어떤 조치인지 */}
+                {showRules && (
+                  <div className="mb-2.5 rounded-[9px] border p-2.5 grid gap-1.5" style={{ borderColor: 'var(--line-2)', background: 'var(--inset)', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))' }}>
+                    {KIND_RULES.map((r) => (
+                      <div key={r.kind} className="flex items-center gap-2 text-[10.5px]">
+                        <Pill tone={r.tone}>{r.label}</Pill>
+                        <span className="text-[var(--tx-3)] flex-1 min-w-0">{r.how}</span>
+                        <span className="font-mono text-[9.5px] text-[var(--tx-4)]">→ {r.action}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* 실패 일괄 분석 트리거 — 규칙이 못 가른/오래된 실패만 LLM 배치 1회. fingerprint 캐시 재사용 */}
                 <div
@@ -349,9 +388,17 @@ export default function AutomationView() {
                   <div className="text-[11.5px] text-[var(--tx-2)] min-w-0">
                     <b className="text-[var(--tx-1)]">실패 일괄 분석</b>{' '}
                     <span className="text-[var(--tx-3)]">
-                      분석 대상 <b style={{ color: TONE.info.fg }}>{data.analysisStats.needAnalysis}</b>건 · 캐시 재사용{' '}
-                      <b>{data.analysisStats.cached}</b>건 (LLM 배치 1회 · 도구 없음 · Sonnet)
+                      규칙 자동 분류 <b>{data.verdictTally.rule}</b>건(토큰 0) · 잔여{' '}
+                      <b style={{ color: TONE.info.fg }}>{data.analysisStats.needAnalysis}</b>건만 LLM 배치 1회 · 캐시 재사용{' '}
+                      <b>{data.analysisStats.cached}</b>건
                     </span>
+                    {/* 토큰 추정 — 배치 1회 vs 건별 호출 (시안의 핵심 장치) */}
+                    <div className="font-mono text-[10px] mt-0.5" style={{ color: 'var(--tx-4)' }}>
+                      예상 <b style={{ color: TONE.ok.fg }}>~{data.analysisStats.needAnalysis === 0 ? 0 : 3 + Math.ceil(data.analysisStats.needAnalysis * 0.3)}k</b> 토큰
+                      {data.analysisStats.needAnalysis > 0 && (
+                        <> · 건별 호출이면 ~{data.analysisStats.needAnalysis * 8}k</>
+                      )}
+                    </div>
                     {analyzeMsg && (
                       <div className="text-[10.5px] mt-1" style={{ color: analyzing ? 'var(--tx-3)' : TONE.ok.fg }}>
                         {analyzeMsg}
@@ -417,9 +464,12 @@ export default function AutomationView() {
               {/* ══ C. 회귀 감시 xfail ════════════════════════════ */}
               <SectionLabel>회귀 감시 · xfail(strict)</SectionLabel>
               <Card stripe="info">
-                <div className="text-[11px] text-[var(--tx-3)] mb-2.5">
-                  XPASS로 뒤집히면 = 결함 수정됨 신호. 감시 목록은 /daily-qa SKILL.md가 원본,
-                  대시보드는 상태만 비춘다.
+                <div className="flex items-start justify-between gap-2 mb-2.5">
+                  <div className="text-[11px] text-[var(--tx-3)]">
+                    XPASS로 뒤집히면 = 결함 수정됨 신호. 감시 목록은 /daily-qa SKILL.md가 원본,
+                    대시보드는 상태만 비춘다.
+                  </div>
+                  <Pill tone="info">{data.xfailWatch.length}건</Pill>
                 </div>
                 <div className="flex flex-col gap-px rounded-[9px] border border-[var(--line)] overflow-hidden">
                   {data.xfailWatch.length === 0 ? (
@@ -451,6 +501,7 @@ export default function AutomationView() {
               </Card>
             </>
           )}
+        </div>
         </div>
       </div>
 
@@ -679,6 +730,118 @@ function AssetCard({
         )}
       </div>
     </div>
+  );
+}
+
+// ─── 왼쪽 레일 — 자산 요약·판정 경로 범례 (시안: 카탈로그 요약) ──────────
+function AutoRail({ data }: { data: Payload | null }) {
+  return (
+    <aside className="w-[212px] flex-shrink-0 bg-[var(--panel)] border-r border-[var(--line)] overflow-y-auto hidden lg:block">
+      <div className="px-3 py-3 border-b border-[var(--line)]">
+        <div className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-[var(--tx-4)]">
+          자산 · 카탈로그
+        </div>
+      </div>
+      <div className="p-2 flex flex-col gap-2">
+        {/* 카탈로그 요약 */}
+        <div className="px-2.5 py-2 rounded-md bg-[var(--inset)] border border-[var(--line)]">
+          <div className="text-[10.5px] text-[var(--tx-3)]">카탈로그</div>
+          <div className="font-mono text-[13px] font-[660] text-[var(--tx-1)] mt-0.5">
+            {data?.catalog ? `${data.catalog.total}건` : '—'}
+          </div>
+          <div className="font-mono text-[9px] text-[var(--tx-4)] mt-0.5">
+            생성 {data?.catalog?.generatedAt ?? '?'}
+          </div>
+        </div>
+        {/* 러너별 자산 상태 */}
+        {(data?.assets ?? []).map((a) => (
+          <div key={a.runner} className="px-2.5 py-2 rounded-md bg-[var(--inset)] border border-[var(--line)]">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[11px] text-[var(--tx-1)] font-medium">{a.label}</span>
+              <span className="font-mono text-[10px]" style={{ color: a.failed > 0 ? TONE.crit.fg : TONE.ok.fg }}>
+                {a.passed}/{a.total}
+              </span>
+            </div>
+            {a.failed > 0 && (
+              <div className="font-mono text-[9px] mt-0.5" style={{ color: TONE.crit.fg }}>실패 {a.failed}</div>
+            )}
+          </div>
+        ))}
+        {/* 판정 경로 범례 */}
+        {data && (
+          <div className="px-2.5 py-2 rounded-md bg-[var(--inset)] border border-[var(--line)]">
+            <div className="text-[9.5px] font-mono uppercase tracking-wider text-[var(--tx-4)] mb-1.5">판정 경로</div>
+            <div className="flex flex-col gap-1 text-[10px]">
+              <div className="flex justify-between"><span style={{ color: TONE.ok.fg }}>규칙</span><span className="font-mono">{data.verdictTally.rule}</span></div>
+              <div className="flex justify-between"><span style={{ color: TONE.idle.fg }}>캐시</span><span className="font-mono">{data.verdictTally.cache}</span></div>
+              <div className="flex justify-between"><span style={{ color: TONE.info.fg }}>LLM</span><span className="font-mono">{data.verdictTally.llm}</span></div>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="px-3 pb-4 text-[9px] font-mono text-[var(--tx-4)] leading-relaxed">
+        /daily-qa 런북을 UI로. 매일 08:00 수집된 회귀 상태를 비춘다.
+      </div>
+    </aside>
+  );
+}
+
+// ─── 실행 트리거 카드 — 직접 실행 X, 기존 CI 인프라를 부른다 ──────────────
+function TriggerCard({
+  triggers,
+  onTrigger,
+}: {
+  triggers: RunnerTrigger[];
+  onTrigger: (runner: string, tier: string) => void;
+}) {
+  const LABEL: Record<string, string> = { web: '웹', api: 'API', app: '앱' };
+  return (
+    <Card stripe="info">
+      <div className="flex items-start justify-between gap-2.5 mb-2">
+        <div>
+          <div className="text-[13px] font-[640] text-[var(--tx-1)]">실행 트리거</div>
+          <div className="text-[11px] text-[var(--tx-3)] mt-0.5">
+            대시보드는 <b className="text-[var(--tx-2)]">직접 실행하지 않고 기존 인프라를 부른다</b> — 실행 환경을 다시 만들지 않는다
+          </div>
+        </div>
+        <Pill tone="ok">동시 실행 방지 유지</Pill>
+      </div>
+      <div className="flex flex-col gap-px rounded-[9px] border border-[var(--line)] overflow-hidden">
+        {triggers.map((t) => (
+          <div key={t.runner} className="flex items-center gap-2.5 px-3 py-2.5 bg-[var(--panel)]">
+            <span className="font-mono text-[11px] font-bold w-[32px] shrink-0" style={{ color: 'var(--accent)' }}>
+              {LABEL[t.runner] ?? t.runner}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11.5px] text-[var(--tx-1)]">{t.via}</div>
+              <div className="text-[10px] text-[var(--tx-3)] mt-px truncate">{t.note}</div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+              {t.tiers.length === 0 ? (
+                <span className="font-mono text-[9.5px] text-[var(--tx-4)]">트리거 대상 아님</span>
+              ) : (
+                t.tiers.map((tier) => (
+                  <button
+                    key={tier}
+                    onClick={() => onTrigger(t.runner, tier)}
+                    disabled={!t.ready}
+                    className="font-mono text-[10px] font-[640] px-2 py-1 rounded-[6px] border disabled:opacity-40"
+                    style={{ color: t.ready ? '#fff' : 'var(--tx-4)', background: t.ready ? 'var(--accent-deep)' : 'var(--inset)', borderColor: t.ready ? 'var(--accent-deep)' : 'var(--line-2)' }}
+                    title={t.ready ? `${t.via}로 ${tier} 트리거 (승인 게이트 후)` : t.note}
+                  >
+                    {tier}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <Quote tone="info">
+        <b style={{ color: TONE.info.fg }}>직접 pytest를 띄우지 않는 이유</b> —
+        Jenkins의 <span className="font-mono">disableConcurrentBuilds()</span>가 stage 데이터 충돌을 막는다. 대시보드가 우회하면 야간 회귀와 겹쳐 데이터가 꼬인다.
+      </Quote>
+    </Card>
   );
 }
 
