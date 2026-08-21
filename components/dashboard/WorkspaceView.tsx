@@ -767,6 +767,19 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           .filter(Boolean)
           .join('\n');
 
+      // Fail 버그 근거 블록 파서 — ```bug-evidence { "TC-003": {…} } ``` 를 뽑는다.
+      // 화면엔 안 뜨고(숨은 필드) 버그 티켓 생성 시 DV-647 섹션 재료로 쓴다.
+      const parseBugEvidence = (full: string): Record<string, unknown> => {
+        const m = full.match(/```bug-evidence\s*([\s\S]*?)```/);
+        if (!m) return {};
+        try {
+          const obj = JSON.parse(m[1].trim());
+          return obj && typeof obj === 'object' ? (obj as Record<string, unknown>) : {};
+        } catch {
+          return {};
+        }
+      };
+
       // 한 세션 실행 → 파싱 → 기입. retryTcs = 실패 시 재시도 배너가 다시 돌릴 TC 목록.
       const runOne = async (part: typeof tcs, label: string, retryTcs: typeof tcs) => {
         const requested = part.map((t) => t.localId); // 이번에 수행 요청한 TC-ID
@@ -796,6 +809,15 @@ export default function WorkspaceView({ workspaceKey }: WorkspaceViewProps) {
           body: JSON.stringify({ action: 'auto-results', sessionId: activeSession.id, results: parsed, requested }),
         });
         const body = (await res.json()) as { applied: number; unmatched: string[]; missing?: string[] };
+        // Fail 버그 근거(숨은 필드) 저장 — 화면 미표시, 티켓 생성 때 쓴다
+        const evidence = parseBugEvidence(full);
+        if (Object.keys(evidence).length > 0) {
+          await fetch('/api/workspace/tc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'save-evidence', sessionId: activeSession.id, evidence }),
+          }).catch(() => {});
+        }
         setTcSavedAt(Date.now()); // 세션(청크)마다 즉시 표 새로고침
         return {
           ok: true as const,

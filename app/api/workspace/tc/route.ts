@@ -5,6 +5,7 @@ import {
   setTcResult,
   setTcVerdict,
   setTcBugTicket,
+  setTcBugEvidence,
   tcWorkBySession,
   tcsOfWork,
   upsertTc,
@@ -136,6 +137,8 @@ function toApi(t: TcRowDb) {
     testRef: t.test_ref ? (JSON.parse(t.test_ref) as string[]) : [],
     handedOffAt: t.handed_off_at,
     bugTicket: t.bug_ticket, // Fail로 등록한 Jira 버그 키 (있으면 재등록 안 함)
+    // Fail 시 수행이 남긴 구조화 버그 근거(숨은 필드). 표에는 안 뜨고 버그 초안 재료로만 쓴다.
+    bugEvidence: t.bug_evidence ? (JSON.parse(t.bug_evidence) as Record<string, unknown>) : null,
     // 11컬럼 밖의 값 — 화면이 이걸 읽어 컬럼을 늘린다 (컬럼 고정 해제의 실현부)
     extra: t.extra ? (JSON.parse(t.extra) as Record<string, string>) : null,
   };
@@ -211,6 +214,12 @@ interface CreateBugsBody {
   project?: string;
   drafts: BugDraft[];
 }
+/** Fail 버그 근거(숨은 필드) 저장 — 수행이 남긴 { localId: sections } */
+interface SaveEvidenceBody {
+  action: 'save-evidence';
+  sessionId: string;
+  evidence: Record<string, unknown>;
+}
 
 type Body =
   | SaveBody
@@ -221,7 +230,8 @@ type Body =
   | PreviewBody
   | ClosePreviewBody
   | CloseBody
-  | CreateBugsBody;
+  | CreateBugsBody
+  | SaveEvidenceBody;
 
 export async function POST(req: Request) {
   const body = (await req.json()) as Body;
@@ -271,6 +281,24 @@ export async function POST(req: Request) {
     case 'result':
       setTcResult(body.id, body.result);
       return NextResponse.json({ ok: true });
+
+    // ── Fail 버그 근거 저장 (숨은 필드) — 수행이 남긴 구조화 근거를 local_id로 매칭 ──
+    case 'save-evidence': {
+      const work = tcWorkBySession(body.sessionId);
+      if (!work) return NextResponse.json({ error: '작업을 찾을 수 없습니다' }, { status: 404 });
+      const all = tcsOfWork(work.id);
+      const norm = (s: string) =>
+        s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/\d+/g, (m) => String(parseInt(m, 10)));
+      const byNorm = new Map(all.map((t) => [norm(t.local_id), t.local_id]));
+      let saved = 0;
+      for (const [rawId, sections] of Object.entries(body.evidence)) {
+        const localId = all.some((t) => t.local_id === rawId) ? rawId : byNorm.get(norm(rawId));
+        if (!localId) continue;
+        setTcBugEvidence(work.id, localId, JSON.stringify(sections));
+        saved++;
+      }
+      return NextResponse.json({ ok: true, saved });
+    }
 
     // ── 자동 수행 결과 일괄 기입 — Claude가 수행한 결과를 local_id로 매칭 ──
     case 'auto-results': {

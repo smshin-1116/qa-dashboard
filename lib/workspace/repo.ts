@@ -573,6 +573,7 @@ export interface TcRowDb {
   test_ref: string | null;
   handed_off_at: string | null;
   bug_ticket: string | null;
+  bug_evidence: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -582,6 +583,16 @@ export function setTcBugTicket(id: number, bugTicket: string): void {
   getDb()
     .prepare(`UPDATE tc SET bug_ticket = ?, updated_at = ? WHERE id = ?`)
     .run(bugTicket, nowIso(), id);
+}
+
+/**
+ * Fail 시 수행이 남긴 구조화 버그 근거(JSON)를 기록한다. 화면엔 안 뜨고,
+ * 버그 티켓 생성 때 DV-647 섹션의 재료로 쓴다(재분석 없이 고품질). local_id로 매칭.
+ */
+export function setTcBugEvidence(workId: number, localId: string, evidenceJson: string): void {
+  getDb()
+    .prepare(`UPDATE tc SET bug_evidence = ?, updated_at = ? WHERE work_id = ? AND local_id = ?`)
+    .run(evidenceJson, nowIso(), workId, localId);
 }
 
 export function tcsOfWork(workId: number): TcRowDb[] {

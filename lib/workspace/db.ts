@@ -83,6 +83,16 @@ function migrate(db: DatabaseSync): void {
     }
   }
 
+  // v5: tc.bug_evidence — Fail 시 수행이 남긴 구조화 버그 근거(JSON). 화면엔 안 뜨고
+  // 버그 티켓 생성 시 DV-647 형식 섹션의 재료로 쓴다(재분석 없이 고품질).
+  if (current > 0 && current < 5) {
+    try {
+      db.exec(`ALTER TABLE tc ADD COLUMN bug_evidence TEXT`);
+    } catch {
+      // 이미 있으면 무시
+    }
+  }
+
   if (current !== SCHEMA_VERSION) {
     db.prepare(
       `INSERT INTO meta (key, value, updated_at) VALUES ('schema_version', ?, ?)

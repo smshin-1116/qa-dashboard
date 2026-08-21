@@ -88,6 +88,8 @@ export interface Tc {
   handedOffAt: string | null;
   /** Fail로 등록한 Jira 버그 키 — 있으면 재등록 안 함, 행에 배지 표시 */
   bugTicket: string | null;
+  /** Fail 시 수행이 남긴 구조화 버그 근거(숨은 필드) — 표 미표시, 버그 초안 재료 */
+  bugEvidence: (BugSections & { summary?: string }) | null;
   /** 11컬럼 밖의 값 (`계정 역할` 등) — 티켓마다 달라 컬럼을 고정하지 않았다 */
   extra: Record<string, string> | null;
 }
@@ -264,31 +266,44 @@ export default function TcPanel({
       .filter((t) => t.result === 'Fail' && !t.bugTicket)
       .map((t) => {
         const area = t.subCategory || t.category || 'QA';
-        const symptom = (t.note || t.expected || t.localId).replace(/\s+/g, ' ').trim();
-        const summary = `[${area}] ${symptom}`.slice(0, 80);
-        // 구조화 섹션(DV-647 형식). 원인(코드)은 수행이 소스까지 확인했으면 사유에 담기고,
-        // 아니면 "미확정"으로 정직하게 둔다.
-        const sections: BugSections = {
-          context: `QA 작업 수행 중 Fail — TC ${t.localId}${workTitle ? ` · ${workTitle}` : ''}`,
-          reproduction: [
-            t.precondition ? `전제조건: ${t.precondition}` : '',
-            t.steps || '(테스트 스텝 미기재)',
-          ].filter(Boolean),
-          actual: t.note || '(수행 사유 미기재 — 수행 로그 확인 필요)',
-          expected: t.expected || '(기대결과 미기재)',
-          rootCause: hasCodeRef(t.note)
-            ? (t.note as string)
-            : '미확정 — 수행 근거/백엔드·프론트 repo에서 `파일:라인` 확인 필요.',
-          impact: '실사용 영향 범위는 코드 원인·경로 확인 후 판정.',
-          environment: 'stage (tms-stage.roouty.io)',
-        };
+        // 수행이 남긴 구조화 근거(bugEvidence)가 있으면 그걸 그대로 쓴다 — 재분석 없이 고품질.
+        // 없으면 TC 필드로 최소 구성(원인 코드는 "미확정").
+        const ev = t.bugEvidence;
+        const sections: BugSections = ev
+          ? {
+              context: ev.context ?? `QA 작업 수행 중 Fail — TC ${t.localId}${workTitle ? ` · ${workTitle}` : ''}`,
+              reproduction: ev.reproduction ?? [t.steps || '(테스트 스텝 미기재)'],
+              actual: ev.actual ?? t.note ?? '(수행 사유 미기재)',
+              expected: ev.expected ?? t.expected ?? '(기대결과 미기재)',
+              rootCause: ev.rootCause ?? '미확정 — 수행 근거/코드 확인 필요.',
+              impact: ev.impact ?? '실사용 영향 범위는 코드 원인·경로 확인 후 판정.',
+              fixProposal: ev.fixProposal,
+              environment: 'stage (tms-stage.roouty.io)',
+              confidence: ev.confidence,
+            }
+          : {
+              context: `QA 작업 수행 중 Fail — TC ${t.localId}${workTitle ? ` · ${workTitle}` : ''}`,
+              reproduction: [
+                t.precondition ? `전제조건: ${t.precondition}` : '',
+                t.steps || '(테스트 스텝 미기재)',
+              ].filter(Boolean),
+              actual: t.note || '(수행 사유 미기재 — 수행 로그 확인 필요)',
+              expected: t.expected || '(기대결과 미기재)',
+              rootCause: hasCodeRef(t.note)
+                ? (t.note as string)
+                : '미확정 — 수행 근거/백엔드·프론트 repo에서 `파일:라인` 확인 필요.',
+              impact: '실사용 영향 범위는 코드 원인·경로 확인 후 판정.',
+              environment: 'stage (tms-stage.roouty.io)',
+            };
+        const symptom = (ev?.summary || t.note || t.expected || t.localId).replace(/\s+/g, ' ').trim();
+        const summary = (ev?.summary ? symptom : `[${area}] ${symptom}`).slice(0, 120);
         return {
           tcId: t.id,
           localId: t.localId,
           summary,
           description: bugSectionsToMarkdown(sections),
           sections,
-          labels: bugLabels([area].filter((l) => /^[\w가-힣-]+$/.test(l))),
+          labels: bugLabels([area].filter((l) => /^[\w가-힣-]+$/.test(l)), ev?.confidence),
           selected: true,
         };
       });
