@@ -894,6 +894,94 @@ export function setRiskPatternStatus(id: number, status: 'candidate' | 'confirme
   getDb().prepare(`UPDATE risk_pattern SET status = ?, updated_at = ? WHERE id = ?`).run(status, nowIso(), id);
 }
 
+// ─── risk_check ────────────────────────────────────────────────────────
+// PR ↔ confirmed 패턴 수동 대조 결과. 수용/기각이 여기 쌓여 수용률 지표가 된다.
+
+export interface RiskCheckRow {
+  id: number;
+  repo: string;
+  pr_number: number;
+  pr_title: string | null;
+  pr_url: string | null;
+  findings: string; // JSON RiskFinding[]
+  patterns_checked: number;
+  created_at: string;
+}
+
+export interface RiskFinding {
+  pattern: string; // RP-001 (confirmed ref)
+  severity: string | null; // 패턴의 severity 승계
+  evidence: string; // diff 안의 구체 근거 (파일·변경 내용) — 없으면 finding 자체가 없다
+  questions: string[]; // 이 PR에 맞춘 대조 질문
+  verdict: 'accepted' | 'rejected' | null; // 개발자/사람 수용 여부 (수용률 재료)
+}
+
+/** PR 대조 결과 저장 — 재대조는 findings를 통째로 교체한다(diff가 바뀌었으므로) */
+export function upsertRiskCheck(input: {
+  repo: string;
+  prNumber: number;
+  prTitle?: string | null;
+  prUrl?: string | null;
+  findings: RiskFinding[];
+  patternsChecked: number;
+}): number {
+  const now = nowIso();
+  const r = getDb()
+    .prepare(
+      `INSERT INTO risk_check (repo, pr_number, pr_title, pr_url, findings, patterns_checked, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(repo, pr_number) DO UPDATE SET
+         pr_title = excluded.pr_title,
+         pr_url = excluded.pr_url,
+         findings = excluded.findings,
+         patterns_checked = excluded.patterns_checked,
+         created_at = excluded.created_at`,
+    )
+    .run(input.repo, input.prNumber, input.prTitle ?? null, input.prUrl ?? null, JSON.stringify(input.findings), input.patternsChecked, now);
+  return Number(r.lastInsertRowid);
+}
+
+export function listRiskChecks(limit = 8): RiskCheckRow[] {
+  return getDb()
+    .prepare(`SELECT * FROM risk_check ORDER BY created_at DESC, id DESC LIMIT ?`)
+    .all(limit) as unknown as RiskCheckRow[];
+}
+
+/** finding 하나의 수용/기각 기입. 대상이 없으면 false (조용한 실패 금지 — 호출부가 알린다) */
+export function setRiskFindingVerdict(checkId: number, index: number, verdict: 'accepted' | 'rejected' | null): boolean {
+  const db = getDb();
+  const row = db.prepare(`SELECT findings FROM risk_check WHERE id = ?`).get(checkId) as { findings?: string } | undefined;
+  if (!row?.findings) return false;
+  let findings: RiskFinding[];
+  try {
+    findings = JSON.parse(row.findings) as RiskFinding[];
+  } catch {
+    return false;
+  }
+  if (!findings[index]) return false;
+  findings[index].verdict = verdict;
+  db.prepare(`UPDATE risk_check SET findings = ? WHERE id = ?`).run(JSON.stringify(findings), checkId);
+  return true;
+}
+
+/** 수용률 재료 — 전체 대조의 수용/기각 집계 */
+export function riskAcceptanceStats(): { accepted: number; rejected: number } {
+  const rows = getDb().prepare(`SELECT findings FROM risk_check`).all() as Array<{ findings: string }>;
+  let accepted = 0;
+  let rejected = 0;
+  for (const r of rows) {
+    try {
+      for (const f of JSON.parse(r.findings) as RiskFinding[]) {
+        if (f.verdict === 'accepted') accepted++;
+        else if (f.verdict === 'rejected') rejected++;
+      }
+    } catch {
+      // 깨진 JSON은 집계에서 제외 — 저장 경로가 항상 JSON.stringify라 정상적으론 없다
+    }
+  }
+  return { accepted, rejected };
+}
+
 /** 리스크 패턴 추출용 — DV 버그 티켓 요약 목록 (최신순) */
 export function bugTicketsForExtract(limit = 60): Array<{ key: string; summary: string | null; labels: string | null }> {
   return getDb()

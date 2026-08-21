@@ -831,3 +831,52 @@ tcRun=false(일반 채팅)는 기존과 100% 동일 — mcp-config 미부착.
 1. **리스크 패턴 Phase 2+** — PR diff 대조 · 수용률 피드백 루프 · 수동 패턴 추가
 2. 템플릿화 이행 phases (`docs/template-roadmap.md`)
 3. Jira 코멘트/버그 실등록 1회 확인 (사람 승인 필요)
+
+---
+
+## 2026-08-21 (3) — 리스크 패턴: 수동 PR 대조 + 수용률 환류 (DESIGN ⑤·⑧)
+
+MVP에서 빠져 있던 ⑤(PR ↔ confirmed 패턴 대조)의 **수동 버전**과 ⑧(수용/기각 환류)을 구현.
+qa-oracle DESIGN의 "MVP 실제 가동 범위 = ①②③④ + ⑦ + ⑤의 수동 버전"이 이제 다 찼다.
+
+### 설계 결정 — 시안이 열어둔 질문의 답
+시안 메모 ④ "PR 대조를 어디서 할까 — diff 붙여넣기 vs qa-stage-report PR 자동 대조"는
+**토큰 규칙 1(매일 자동층에 LLM 금지)이 정한다**: 대조는 LLM이 필요하므로 자동 수집층에
+못 넣는다. → **수동 트리거 + stage-pr 수집기가 이미 모은 병합 PR을 후보로 프리필**
+(클릭 한 번, LLM은 버튼 눌러야만). diff 붙여넣기 대신 `gh pr diff` 직접 조회(read-only).
+
+### 구조 (schema v7)
+- `risk_check` 테이블 — repo·PR·findings JSON·patterns_checked. 같은 PR 재대조는
+  findings 통째 교체(diff가 바뀌었으므로 이전 수용/기각도 초기화)
+- `lib/workspace/checkPrRisk.ts` — gh pr view/diff(read-only, WEMEETPLACE 한정)
+  → confirmed 패턴 × diff를 LLM 1회(sonnet·MCP 0)로 대조. diff 60k자 예산 초과 시
+  자르고 결과에 명시(조용한 절단 금지)
+- **거짓양성 3중 억제** (DESIGN §9 "스팸이 최대 리스크"):
+  ① 프롬프트 — diff 안 구체 근거 못 대면 내지 마라, 빈 배열이 정답
+  ② 서버 — confirmed 실물 ref + evidence 필수, 아니면 버림(skipped 카운트)
+  ③ 사람 — findings마다 👍수용/👎기각 → **수용률 지표 환류** (발견 수는 지표가 아니다)
+- route: POST `check`·`verdict` + GET에 checks·prCandidates·acceptanceRate
+- RiskView: PR 대조 카드(프리필 + 수동 입력 `owner/repo#123`/URL) + 대조 결과 카드
+
+### 라이브 검증 (실 PR · LLM 2회)
+| 확인 | 결과 |
+|---|---|
+| confirmed 0건 가드 | ✅ "후보 큐에서 먼저 확정하세요" (LLM 미소비) |
+| 조직 화이트리스트 | ✅ 타 조직 레포 거부 |
+| **음성 케이스** — RP-001(입력검증) × #4973(소유검증 추가 PR) | ✅ **매칭 0 = 빈 배열이 정답을 정직하게** (14초) |
+| **양성 케이스** — RP-003(소유자 검증 누락) × 같은 PR | ✅ 파일·분기·403 vs 404 판단·코드 주석 인용까지 구체 근거 + PR 맞춤 질문 3개 |
+| 수용 → 수용률 | ✅ accepted 1 → **100% · 판정 1건** 타일 실데이터 |
+| undo(null)·잘못된 index | ✅ 롤백·404 안내 |
+| 화면 렌더 (Playwright) | ✅ 프리필 14건·재대조 표시·결과 카드·수용/기각 버튼 |
+
+검증 데이터 원복 완료 — **패턴 확정은 사람 몫**이므로 임시 확정(RP-001·003)을 후보로
+되돌리고 risk_check 행 삭제. tsc·eslint 통과.
+
+> 참고: 양성 케이스에서 잡힌 질문들이 실제로 유효해 보였다 — #4973이 한 엔드포인트에만
+> 소유 검증을 추가했는데 "같은 서비스의 다른 driver-app GET에도 있는지"는 진짜 QA 질문.
+> RP-001(증거 7)·RP-003(증거 3)은 확정할 만해 보이니 후보 큐에서 검토 권장.
+
+### 다음
+1. 리스크 패턴 후보 5건 큐레이션 (사람) → 확정 후 PR 대조 실사용
+2. Phase 2+ 잔여: 수동 패턴 추가 · PR 코멘트 등록(승인 게이트)
+3. 템플릿화 이행 phases / Jira 실등록 1회 확인

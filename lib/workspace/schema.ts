@@ -24,7 +24,7 @@
  *   그전까지 TC는 채팅 메시지 안 마크다운 표에만 있어서
  *   판정·테스트 참조·수행 결과를 붙일 자리가 없었다.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const DDL = `
 -- ─────────────────────────────────────────────────────────────────────
@@ -285,4 +285,18 @@ CREATE TABLE IF NOT EXISTS risk_pattern (
   updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_risk_status ON risk_pattern (status);
+
+-- risk_check : PR ↔ confirmed 리스크 패턴 수동 대조 결과 (DESIGN ⑤의 수동 버전)
+-- 같은 PR을 재대조하면 findings를 갱신한다(diff가 바뀌었으므로 이전 수용/기각도 초기화).
+CREATE TABLE IF NOT EXISTS risk_check (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo             TEXT NOT NULL,                  -- owner/name
+  pr_number        INTEGER NOT NULL,
+  pr_title         TEXT,
+  pr_url           TEXT,
+  findings         TEXT NOT NULL,                  -- JSON [{pattern, severity, evidence, questions[], verdict}]
+  patterns_checked INTEGER NOT NULL DEFAULT 0,     -- 대조에 쓴 confirmed 패턴 수 ("매칭 0"의 맥락)
+  created_at       TEXT NOT NULL,
+  UNIQUE (repo, pr_number)
+);
 `;
