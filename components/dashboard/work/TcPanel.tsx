@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Session } from '@/types/session';
+import { bugSectionsToMarkdown, bugLabels, type BugSections } from '@/lib/workspace/bugTemplate';
 
 /**
  * QA 작업 — 시안 "③~⑥ TC 작성 · ⑦ 수행" + "작업 종료" 카드.
@@ -97,7 +98,14 @@ interface BugDraft {
   localId: string;
   summary: string;
   description: string;
+  sections?: BugSections;
+  labels?: string[];
   selected: boolean;
+}
+
+/** 사유에 코드 근거(`파일:라인` 또는 .py/.ts/.js 경로)가 담겼는지 — 원인(코드) 확정 판단 */
+function hasCodeRef(s: string | null): boolean {
+  return !!s && /[\w/.-]+\.(ts|tsx|js|py|java)(:\d+)?|\b\w+\.(js|ts):\d+/.test(s);
 }
 
 interface Crosscheck {
@@ -258,25 +266,31 @@ export default function TcPanel({
         const area = t.subCategory || t.category || 'QA';
         const symptom = (t.note || t.expected || t.localId).replace(/\s+/g, ' ').trim();
         const summary = `[${area}] ${symptom}`.slice(0, 80);
-        const description = [
-          '## 재현 경로',
-          t.precondition ? `전제조건: ${t.precondition}` : '',
-          t.steps || '',
-          '',
-          '## 실제 결과',
-          t.note || '(수행 사유 미기재 — 수행 로그 확인 필요)',
-          '',
-          '## 기대 결과',
-          t.expected || '(기대결과 미기재)',
-          '',
-          '## 참고',
-          `- TC-ID: ${t.localId}`,
-          '- 검증 환경: stage (tms-stage.roouty.io)',
-          workTitle ? `- 작업: ${workTitle}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n');
-        return { tcId: t.id, localId: t.localId, summary, description, selected: true };
+        // 구조화 섹션(DV-647 형식). 원인(코드)은 수행이 소스까지 확인했으면 사유에 담기고,
+        // 아니면 "미확정"으로 정직하게 둔다.
+        const sections: BugSections = {
+          context: `QA 작업 수행 중 Fail — TC ${t.localId}${workTitle ? ` · ${workTitle}` : ''}`,
+          reproduction: [
+            t.precondition ? `전제조건: ${t.precondition}` : '',
+            t.steps || '(테스트 스텝 미기재)',
+          ].filter(Boolean),
+          actual: t.note || '(수행 사유 미기재 — 수행 로그 확인 필요)',
+          expected: t.expected || '(기대결과 미기재)',
+          rootCause: hasCodeRef(t.note)
+            ? (t.note as string)
+            : '미확정 — 수행 근거/백엔드·프론트 repo에서 `파일:라인` 확인 필요.',
+          impact: '실사용 영향 범위는 코드 원인·경로 확인 후 판정.',
+          environment: 'stage (tms-stage.roouty.io)',
+        };
+        return {
+          tcId: t.id,
+          localId: t.localId,
+          summary,
+          description: bugSectionsToMarkdown(sections),
+          sections,
+          labels: bugLabels([area].filter((l) => /^[\w가-힣-]+$/.test(l))),
+          selected: true,
+        };
       });
     if (drafts.length === 0) {
       say('info', '등록할 Fail이 없습니다 (이미 등록됐거나 Fail 없음)');
@@ -299,7 +313,14 @@ export default function TcPanel({
           action: 'create-bugs',
           sessionId,
           project: bugModal.project,
-          drafts: chosen.map((d) => ({ tcId: d.tcId, localId: d.localId, summary: d.summary, description: d.description })),
+          drafts: chosen.map((d) => ({
+            tcId: d.tcId,
+            localId: d.localId,
+            summary: d.summary,
+            description: d.description,
+            sections: d.sections,
+            labels: d.labels,
+          })),
         }),
       });
       const body = (await res.json()) as {

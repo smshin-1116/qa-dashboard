@@ -6,25 +6,42 @@ import { isAnalysisFresh } from '@/lib/workspace/fingerprint';
 import { analyzeFailures } from '@/lib/workspace/analyzeFailures';
 import { getTriggerConfig, triggerRun } from '@/lib/workspace/triggerRun';
 import { createBugs } from '@/lib/workspace/jiraComment';
+import { bugSectionsToMarkdown, bugLabels, type BugSections } from '@/lib/workspace/bugTemplate';
 
-/** finding → Jira 버그 초안 (도메인 무관 — 실패 데이터로만 구성) */
+/**
+ * finding → 구조화 버그 초안 (DV-647 형식). 도메인 무관 — 실패 데이터로만 구성.
+ * ⚠️ 자동화 실패는 코드 원인이 확정되지 않은 상태다. rootCause는 "미확정 + 분석 가설"로
+ *    정직하게 두고 신뢰도 등급은 붙이지 않는다 — 코드 원인은 재현/소스 분석으로 채워야 한다.
+ */
 function bugDraftFromFinding(f: FindingRow) {
   const target = f.node_id ?? f.contract_key ?? `finding-${f.id}`;
-  const summary = `[자동화 실패] ${target}${f.runner ? ` (${f.runner})` : ''}`;
-  const description = [
-    `러너: ${f.runner ?? '-'}`,
-    f.error_type ? `에러 유형: ${f.error_type}` : '',
-    f.contract_key ? `계약: ${f.contract_key}` : '',
-    f.occurrences ? `발생: ${f.occurrences}회` : '',
-    '',
-    `신호:\n${(f.detail ?? '').slice(0, 800)}`,
-    f.analysis ? `\n분석(LLM): ${f.analysis}` : '',
-    '',
-    '— QA Workspace 테스트 자동화에서 등록',
-  ]
-    .filter((l) => l !== '')
-    .join('\n');
-  return { tcId: f.id, localId: target, summary, description };
+  const summary = `[자동화 실패] ${target}${f.runner ? ` (${f.runner})` : ''}`.slice(0, 200);
+  const sections: BugSections = {
+    context: `테스트 자동화 회귀에서 발견 — ${f.runner ?? ''} 러너${f.occurrences && f.occurrences > 1 ? ` · ${f.occurrences}회 반복` : ''}`,
+    reproduction: [
+      `회귀 스위트에서 \`${target}\` 실행`,
+      f.contract_key ? `대상 계약: ${f.contract_key}` : '해당 테스트가 검증하는 화면/동작 확인',
+    ].filter(Boolean),
+    actual: (f.detail ?? '(에러 메시지 없음)').slice(0, 1000),
+    expected: '테스트가 통과한다 (해당 기능이 기대대로 동작).',
+    rootCause: [
+      '미확정 — 백엔드/프론트 repo에서 `파일:라인`을 확인해야 한다 (재현 후 소스 분석 필요).',
+      f.analysis ? `\n분석 가설(LLM): ${f.analysis}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    impact: '회귀 스위트 실패 — 해당 기능의 자동 검증 공백. 실사용 영향 범위는 코드 원인 확인 후 판정.',
+    environment: 'stage · 자동화 회귀 (QA Workspace 테스트 자동화 탭에서 등록)',
+    // 신뢰도 등급은 코드 원인이 확정돼야 부여 — 지금은 미부여(QA 레이블만)
+  };
+  return {
+    tcId: f.id,
+    localId: target,
+    summary,
+    description: bugSectionsToMarkdown(sections),
+    sections,
+    labels: bugLabels(['test', f.runner === 'api' ? 'api-automation' : 'e2e']),
+  };
 }
 
 /**

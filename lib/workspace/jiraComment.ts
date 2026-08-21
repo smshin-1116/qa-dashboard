@@ -15,6 +15,11 @@
  * jira 수집기와 같은 Atlassian 토큰(`CONFLUENCE_*`)을 Basic으로 쓴다.
  */
 
+import { bugDescriptionAdf, type BugSections } from '@/lib/workspace/bugTemplate';
+
+/** 버그 컴포넌트 — 컨벤션상 ROOUTY. env로 바꾸고, 빈 값이면 생략(잘못된 컴포넌트로 생성 실패 방지). */
+const BUG_COMPONENT = process.env.JIRA_BUG_COMPONENT ?? 'ROOUTY';
+
 /**
  * Jira 코멘트 본문은 ADF(Atlassian Document Format)다.
  * 평문 줄바꿈을 그대로 보내면 한 줄로 붙어버리므로 줄 단위 문단으로 감싼다.
@@ -103,7 +108,12 @@ export interface BugDraft {
   tcId: number;
   localId: string;
   summary: string;
+  /** 평문 설명(구버전 호환). sections가 있으면 sections를 우선 렌더한다 */
   description: string;
+  /** 구조화 섹션(DV-647 형식) — 있으면 이걸로 ADF를 만든다 */
+  sections?: BugSections;
+  /** 레이블(QA·신뢰도 등급 포함). 미지정 시 ['QA'] */
+  labels?: string[];
 }
 export interface BugResult {
   tcId: number;
@@ -149,7 +159,11 @@ export async function createBugs(projectKey: string, drafts: BugDraft[]): Promis
             project: { key: projectKey },
             issuetype: { name: '버그' },
             summary: d.summary,
-            description: toAdf(d.description),
+            // 구조화 섹션이 있으면 DV-647 형식 ADF, 없으면 평문 폴백
+            description: d.sections ? bugDescriptionAdf(d.sections) : toAdf(d.description),
+            labels: d.labels?.length ? d.labels : ['QA'],
+            // 컴포넌트 — 컨벤션상 항상 ROOUTY (env로 override, 미설정 시 생략해 생성 실패 방지)
+            ...(BUG_COMPONENT ? { components: [{ name: BUG_COMPONENT }] } : {}),
           },
         }),
       });
