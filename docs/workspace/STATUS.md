@@ -4,19 +4,21 @@
 > **작업 배치가 끝날 때마다 이 파일을 갱신하고 함께 커밋한다.**
 > 설계 근거·결정 이력은 `~/Projects/qa-oracle/docs/` (ASSET-INVENTORY · HISTORY · workspace-prototype.html).
 
-_최종 갱신: 2026-08-09 — **수집기 5종 완비 + 탭 통합(TC 자동화 + 기능 분석 → QA 작업)**_
+_최종 갱신: 2026-08-21 — **테스트 자동화 탭 완성 + 버그 티켓 구조화 + 리스크 패턴 탭 MVP + Slack 딥링크 양방향**_
 
 ## 한눈에
 
 | 항목 | 상태 |
 |---|---|
-| 상태 저장소 | ✅ `data/workspace.db` (node:sqlite · 의존성 0) · 8 테이블 |
+| 상태 저장소 | ✅ `data/workspace.db` (node:sqlite · 의존성 0) · **schema v6** (risk_pattern까지) |
 | 수집기 | ✅ **5종** 가동 — api-test · jira · datadog · web-e2e · **stage-pr** (**LLM 호출 0**) |
 | todo 규칙 엔진 | ✅ 확정 규칙 9개 구현 · 멱등 · 복귀/고정 검증 완료 |
 | 오늘 화면 | ✅ `/dashboard/today` — 타일 6 · todo 5건 노출 · 신호 블록 5 |
-| QA 작업 화면 | ✅ `/dashboard/work` — 구 TC 자동화 + 기능 분석 통합 (탭 4→3) |
+| QA 작업 화면 | ✅ `/dashboard/work` — ⓪~⑦ 전 구간 (흡수·게이트·TC·수행·버그 근거·작업 종료) |
+| 테스트 자동화 화면 | ✅ `/dashboard/auto` — 분석·트리거·조치 3종 + 추이·건강도 + Slack 딥링크 수신 |
+| 리스크 패턴 화면 | ✅ `/dashboard/risk` — MVP (추출·큐레이션) |
 | 🔔 알림 화면 | ✅ `/dashboard/notice` — 5그룹 · 행동 4종(복귀·백로그·미룸·끄기) |
-| 아침 스케줄 | ✅ launchd `com.smshin.qa-workspace.collect` 평일 **08:40** |
+| 아침 스케줄 | ✅ `scripts/setup-auto-collect.sh` — launchd 재현 가능 설치 (08:00 · junit 동기화 포함) |
 | 실측 검증 | ✅ 실데이터로 전 경로 확인 (파서·규칙·화면·체크·복귀·스케줄) |
 
 **연동 대상 현황** (2026-08-08 기준)
@@ -97,9 +99,10 @@ scripts/{collect,verify-todo,load-env,ts-resolve-hook}.mjs · morning-collect.sh
 
 > 아래 날짜별 기록의 맨 마지막 "다음 할 일"이 항상 최신이다. 여기는 요약만 둔다.
 
-1. **Slack 딥링크** — `slack_notify.py` · `summarize.mjs`에 대시보드 URL 한 줄 추가
-2. 나머지 화면 (QA 작업 확장 · 테스트 자동화 · 리스크 · 티켓) — 시안은 확정, 구현 대기
-3. `manual-dispatch.spec.ts`의 `licenseNumber` 타입 오류 정리 (api-test 레포 · 기존 문제)
+1. **리스크 패턴 Phase 2+** — PR diff 대조 · 수용률 피드백 루프 · 수동 패턴 추가
+2. **템플릿화 이행** — `docs/template-roadmap.md`의 phases (수집기 플러그인화부터)
+3. Jira 코멘트/버그 실등록 1회 확인 (미리보기까지만 검증됨 · 사람 승인 필요)
+4. `manual-dispatch.spec.ts`의 `licenseNumber` 타입 오류 정리 (api-test 레포 · 기존 문제)
 
 ## 미결 / 주의
 
@@ -773,3 +776,58 @@ tcRun=false(일반 채팅)는 기존과 100% 동일 — mcp-config 미부착.
 전용 프로필 mcp-config로 claude 직접 실행 → Playwright connected · stage 접속 성공
 ("루티 Roouty - 차량배차관리시스템"). tsc·eslint 통과.
 ⚠️ 전용 프로필은 새 프로필이라 첫 수행 시 stage 로그인 1회 필요 (이후 영속 유지).
+
+---
+
+## 2026-08-19 ~ 08-21 — 미기록 배치 소급 정리 (커밋 9건 · 상세는 커밋 본문 참조)
+
+> ⚠️ 이 구간은 배치마다 STATUS를 갱신하는 규칙을 어기고 커밋만 쌓였다.
+> 여기 요약으로 소급하고, 상세 근거·실측 수치는 각 커밋 본문이 원본이다.
+
+### QA 작업 (8f2fb0d · 7e593d1 · a972da9 · 3f2958a · 271c245)
+- **입력 모드 분리** — TC 설계 / 기능 분석 두 모드 + 후속 입력 바
+- 수행 결과 파서 보강 + 미반영 TC 명시 경고 / 수행 산출물은 `.playwright-mcp/` 스크래치로 격리
+- **버그 티켓 구조화 템플릿** (`lib/workspace/bugTemplate.ts`, DV-647 형식) — 재현경로·실제·기대·
+  원인코드·영향·수정방향·검증환경·신뢰도 → 리치 ADF. 원인 미확인 시 "미확정"으로 정직하게
+- **수행 Fail 근거를 숨은 필드에** (`tc.bug_evidence`, schema v5) — 수행이 이미 본 화면·소스
+  근거를 구조화 블록으로 받아뒀다가 티켓 만들 때 재분석 0으로 사용
+
+### 테스트 자동화 탭 신설 `/dashboard/auto` (34557bc → 53486c0 · 6커밋)
+- **실패 일괄 분석** — 규칙 → fingerprint 캐시 → 잔여만 LLM 배치 1회 (GET엔 LLM 없음 원칙)
+- **실행 트리거** — 웹 Jenkins REST / API GitHub Actions, confirm 승인 게이트 필수
+- **조치 버튼 실동작** (수렴점) — 버그 등록(게이트) · 재실행 · 해소 처리
+- **심층 분석** (`deepAnalyzeFinding.ts`) — 테스트 소스 + 제품 repo(gh read-only)를 읽어
+  원인(파일:라인)까지. 실측: selector-drift 1건에서 "60초 타임아웃이 보장값 아님" 규명
+- 시안 맞춤(왼쪽 레일·트리거 카드·분류 규칙·토큰 추정) + 7일 추이·환경 건강도 카드
+- **Slack 딥링크 수신** — `?focus=fail` → 유지보수 큐 스크롤 + 실패만 필터
+
+### 기타
+- **자동 수집 설치 스크립트** (`scripts/setup-auto-collect.sh`) — plist 커밋 대신 생성·설치
+  스크립트로 재현 가능하게. Jenkins junit.xml docker cp 동기화 포함 (44e6038)
+- **템플릿화 로드맵** (`docs/template-roadmap.md`) — 코어/프로파일/플러그인 3층 (a28d3b7)
+- **리스크 패턴 탭 MVP** `/dashboard/risk` (acf5458) — schema v6 `risk_pattern`.
+  버그 이력 클러스터링(LLM 1회) → candidate → 사람이 확정/기각. 철칙: 증거 없으면 카드 없음.
+  실측 버그 60건 → 후보 5건 (RP-001 입력검증 증거 7건 등)
+
+---
+
+## 2026-08-21 (2) — Slack 딥링크 발신 완결 (api 쪽 `summarize.mjs`)
+
+딥링크 3짝 중 마지막 조각. 수신(`?focus=fail`)과 웹 E2E 발신(`slack_notify.py`)은
+완료였고 **API 쪽 발신만 남아 있었다.**
+
+- `~/roouty-api-test/report/summarize.mjs` — 실패가 있을 때만
+  `⚡ <$DASHBOARD_URL/dashboard/auto?focus=fail|실패 분석하러 가기>` 한 줄 추가
+  (web 쪽과 동일 패턴 · `DASHBOARD_URL` 기본 `http://localhost:3000`)
+- **수집기 파서 영향 없음 확인** — `collectors/apiTest.ts`의 `parseReport`는
+  헤더·통계·`•`·`↳`·`…외 N건` 패턴 줄만 읽으므로 `⚡` 줄은 무시된다 (코드로 확인)
+- 검증: 합성 results.json(실패 1)으로 실행 → 실패 블록 뒤 링크 출력 ·
+  실패 0인 실데이터에서는 링크 미출력 (의도대로)
+
+이로써 **Slack 딥링크 항목은 완전 종료** — 야간 회귀 알림(웹·API 모두)에서 클릭 한 번으로
+실패 필터된 자동화 탭에 도착한다.
+
+### 다음
+1. **리스크 패턴 Phase 2+** — PR diff 대조 · 수용률 피드백 루프 · 수동 패턴 추가
+2. 템플릿화 이행 phases (`docs/template-roadmap.md`)
+3. Jira 코멘트/버그 실등록 1회 확인 (사람 승인 필요)
