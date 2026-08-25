@@ -208,16 +208,22 @@ export default function RiskView() {
               {/* 성과 지표 + 추출 트리거 */}
               <Card>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
+                  {/* 시안 4타일: 수용률 · 배포 전 차단 · 확정 패턴(+후보) · 근거 이력 */}
                   <div className="flex items-center gap-4">
-                    <Stat label="확정 패턴" value={String(data.stats.confirmed)} tone="crit" />
-                    <Stat label="후보" value={String(data.stats.candidate)} tone="warn" />
-                    <Stat label="근거 이력" value={String(data.stats.evidenceTotal)} tone="idle" />
                     <Stat
                       label="개발자 수용률"
                       value={data.stats.acceptanceRate == null ? '—' : `${data.stats.acceptanceRate}%`}
                       tone={data.stats.acceptanceRate == null ? 'idle' : 'ok'}
                       sub={data.stats.judged > 0 ? `판정 ${data.stats.judged}건` : '데이터 축적 전'}
                     />
+                    <Stat
+                      label="배포 전 차단"
+                      value={data.stats.blockedPreDeploy == null ? '—' : String(data.stats.blockedPreDeploy)}
+                      tone={data.stats.blockedPreDeploy == null ? 'idle' : 'crit'}
+                      sub="고위험 결함"
+                    />
+                    <Stat label="확정 패턴" value={String(data.stats.confirmed)} tone="crit" sub={`+ 후보 ${data.stats.candidate}`} />
+                    <Stat label="근거 이력" value={String(data.stats.evidenceTotal)} tone="idle" />
                   </div>
                   <div className="text-right">
                     <button
