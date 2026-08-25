@@ -167,9 +167,25 @@ export default function RiskView() {
     await reload();
   }
 
+  // 좌측 레일 선택 → 해당 카드로 스크롤 + 강조 (시안: rail-item.on)
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  function jumpTo(p: Pattern) {
+    setSelectedId(p.id);
+    document.getElementById(`rp-card-${p.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   return (
     <div className="flex flex-col h-screen bg-[var(--ground)]">
       <DashboardHeader activeModel={model} onModelChange={setModel} activeWorkspaceKey="risk" />
+      <div className="flex-1 min-h-0 flex">
+        {/* ── 왼쪽 레일 — 패턴 목록 (시안 railLbl: '패턴 목록') ── */}
+        <RiskRail
+          patterns={data ? [...data.confirmed, ...data.candidate] : []}
+          retiredCount={data?.retired.length ?? 0}
+          selectedId={selectedId}
+          onSelect={jumpTo}
+        />
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-5xl mx-auto w-full p-4 flex flex-col gap-3.5">
           <div>
@@ -304,7 +320,7 @@ export default function RiskView() {
               {data.confirmed.length === 0 ? (
                 <Card><div className="text-[12px] text-[var(--tx-3)]">확정된 패턴이 없습니다 — 후보를 검토해 확정하세요.</div></Card>
               ) : (
-                data.confirmed.map((p) => <PatternCard key={p.id} p={p} onCurate={curate} confirmed />)
+                data.confirmed.map((p) => <PatternCard key={p.id} p={p} onCurate={curate} confirmed selected={selectedId === p.id} />)
               )}
 
               {/* 후보 큐 */}
@@ -312,21 +328,93 @@ export default function RiskView() {
               {data.candidate.length === 0 ? (
                 <Card><div className="text-[12px] text-[var(--tx-3)]">후보가 없습니다 — [패턴 추출]로 버그 이력에서 뽑아보세요.</div></Card>
               ) : (
-                data.candidate.map((p) => <PatternCard key={p.id} p={p} onCurate={curate} />)
+                data.candidate.map((p) => <PatternCard key={p.id} p={p} onCurate={curate} selected={selectedId === p.id} />)
               )}
             </>
           )}
         </div>
       </div>
+      </div>
     </div>
   );
 }
 
-function PatternCard({ p, onCurate, confirmed }: { p: Pattern; onCurate: (id: number, s: 'confirmed' | 'retired' | 'candidate') => void; confirmed?: boolean }) {
+/** 좌측 레일 — 패턴 목록 내비게이터 (시안: rail-item + meta). 클릭 시 해당 카드로 이동 */
+function RiskRail({
+  patterns,
+  retiredCount,
+  selectedId,
+  onSelect,
+}: {
+  patterns: Pattern[];
+  retiredCount: number;
+  selectedId: number | null;
+  onSelect: (p: Pattern) => void;
+}) {
+  return (
+    <aside className="w-[212px] flex-shrink-0 bg-[var(--panel)] border-r border-[var(--line)] overflow-y-auto hidden lg:block">
+      <div className="px-3 py-3 border-b border-[var(--line)]">
+        <div className="font-mono text-[9.5px] font-semibold tracking-[0.1em] uppercase text-[var(--tx-4)]">
+          패턴 목록
+        </div>
+      </div>
+      <div className="p-2 flex flex-col gap-0.5">
+        {patterns.length === 0 && (
+          <div className="px-2.5 py-2 text-[10.5px] text-[var(--tx-4)]">패턴 없음 — [패턴 추출]로 시작</div>
+        )}
+        {patterns.map((p) => {
+          const on = selectedId === p.id;
+          const sev = (p.severity && SEV_TONE[p.severity]) || 'idle';
+          return (
+            <button
+              key={p.id}
+              onClick={() => onSelect(p)}
+              className="text-left px-2.5 py-2 rounded-md border text-[11px] leading-snug transition-colors"
+              style={
+                on
+                  ? { background: 'var(--accent-bg)', borderColor: 'var(--accent-deep)', color: 'var(--accent)', fontWeight: 600 }
+                  : { background: 'transparent', borderColor: 'transparent', color: 'var(--tx-3)' }
+              }
+            >
+              <span className="font-mono text-[9.5px] font-bold mr-1" style={{ color: on ? 'var(--accent)' : TONE[sev].fg }}>
+                {p.ref ?? `#${p.id}`}
+              </span>
+              <span className="text-[var(--tx-2)]">{p.title}</span>
+              <span className="block font-mono text-[9.5px] text-[var(--tx-4)] mt-0.5">
+                {p.status} · 증거 {p.evidence?.jira_bugs?.length ?? 0}
+              </span>
+            </button>
+          );
+        })}
+        {retiredCount > 0 && (
+          <div className="px-2.5 py-1.5 font-mono text-[9px] text-[var(--tx-4)]">기각·폐기 {retiredCount}건 (목록 밖)</div>
+        )}
+      </div>
+      <div className="px-3 pb-4 text-[9px] font-mono text-[var(--tx-4)] leading-relaxed">
+        이 제품이 반복적으로 틀리는 방식. 증거 없으면 카드 없음.
+      </div>
+    </aside>
+  );
+}
+
+function PatternCard({ p, onCurate, confirmed, selected }: { p: Pattern; onCurate: (id: number, s: 'confirmed' | 'retired' | 'candidate') => void; confirmed?: boolean; selected?: boolean }) {
   const sev = (p.severity && SEV_TONE[p.severity]) || 'idle';
   const bugs = p.evidence?.jira_bugs ?? [];
   return (
-    <div className="rounded-[13px] border p-3.5" style={{ background: 'var(--panel)', borderColor: 'var(--line)', borderLeft: `3px solid ${TONE[sev].fg}` }}>
+    <div
+      id={`rp-card-${p.id}`}
+      className="rounded-[13px] border p-3.5"
+      style={{
+        background: 'var(--panel)',
+        // borderColor(축약)와 borderLeft(축약)를 섞으면 React가 리렌더 충돌을 경고한다 — 전부 개별 속성으로
+        borderTopColor: selected ? 'var(--accent-deep)' : 'var(--line)',
+        borderRightColor: selected ? 'var(--accent-deep)' : 'var(--line)',
+        borderBottomColor: selected ? 'var(--accent-deep)' : 'var(--line)',
+        borderLeftColor: TONE[sev].fg,
+        borderLeftWidth: 3,
+        scrollMarginTop: 12,
+      }}
+    >
       <div className="flex items-start justify-between gap-2.5 mb-1.5">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -396,7 +484,7 @@ function CheckCard({ c, onVerdict }: { c: Check; onVerdict: (checkId: number, in
           {c.findings.map((f, i) => {
             const sev = (f.severity && SEV_TONE[f.severity]) || 'idle';
             return (
-              <div key={i} className="rounded-[9px] border p-2.5" style={{ borderColor: 'var(--line-2)', background: 'var(--inset)', borderLeft: `3px solid ${TONE[sev].fg}` }}>
+              <div key={i} className="rounded-[9px] border p-2.5" style={{ borderColor: 'var(--line-2)', background: 'var(--inset)', borderLeftColor: TONE[sev].fg, borderLeftWidth: 3 }}>
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono text-[10px] font-bold" style={{ color: TONE[sev].fg }}>{f.pattern}</span>
