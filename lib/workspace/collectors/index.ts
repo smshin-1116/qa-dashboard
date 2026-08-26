@@ -2,6 +2,7 @@ import { setMeta, nowIso } from '../db';
 import { collectApiTest } from './apiTest';
 import { collectDatadog } from './datadog';
 import { collectJira } from './jira';
+import { collectMetricSnapshot } from './metricSnapshot';
 import { collectStagePr } from './stagePr';
 import { collectWebE2e } from './webE2e';
 import type { CollectorResult } from './shared';
@@ -26,6 +27,10 @@ export async function collectAll(): Promise<CollectorResult[]> {
     collectWebE2e(),
     collectStagePr(),
   ]);
+
+  // 지표 스냅샷은 반드시 **마지막** — 위 수집기들이 오늘 데이터를 다 쓴 상태를 박제한다.
+  // 병렬 묶음에 넣으면 어제 값이 찍힌다.
+  results.push(await collectMetricSnapshot());
 
   // 수집기별 마지막 실행 시각·상태 기록 (우측 패널이 읽는다)
   for (const r of results) {

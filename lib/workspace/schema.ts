@@ -24,7 +24,7 @@
  *   그전까지 TC는 채팅 메시지 안 마크다운 표에만 있어서
  *   판정·테스트 참조·수행 결과를 붙일 자리가 없었다.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const DDL = `
 -- ─────────────────────────────────────────────────────────────────────
@@ -285,6 +285,35 @@ CREATE TABLE IF NOT EXISTS risk_pattern (
   updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_risk_status ON risk_pattern (status);
+
+-- metric_snapshot : 일일 지표 스냅샷 (v8 · 2026-08-26)
+-- 다른 테이블은 전부 UPSERT(멱등)라 "오늘"이 "어제"를 덮어써 이력이 증발한다.
+-- 추이(정체 감소·수용률·통과율)를 그리려면 하루 1행의 스냅샷이 유일한 원본이다.
+-- 하루 안의 재수집은 그날 행을 갱신(최신값) — 멱등 원칙 유지.
+CREATE TABLE IF NOT EXISTS metric_snapshot (
+  day                TEXT PRIMARY KEY,            -- KST 기준일
+  todo_total         INTEGER,
+  todo_done          INTEGER,
+  todo_carry         INTEGER,                     -- 이월(첫 등장일 < 오늘)
+  qa_tickets         INTEGER,                     -- "QA 중" 티켓 수
+  qa_stall_max       INTEGER,                     -- 최장 정체일
+  qa_stall_avg       REAL,
+  api_passed         INTEGER, api_failed INTEGER, api_total INTEGER,   -- 러너별 최신 실행
+  web_passed         INTEGER, web_failed INTEGER, web_total INTEGER,
+  findings_open      INTEGER,
+  notice_active      INTEGER,
+  risk_confirmed     INTEGER,
+  risk_candidate     INTEGER,
+  risk_checks        INTEGER,                     -- PR 대조 누적 수
+  risk_accepted      INTEGER,                     -- 수용/기각 누적 (수용률 원본)
+  risk_rejected      INTEGER,
+  bugs_filed         INTEGER,                     -- QA 수행발 버그 티켓 누적 (tc.bug_ticket distinct)
+  blocked_pre_deploy INTEGER,                     -- 정의 확정 전 NULL (예약)
+  tokens_input       INTEGER,                     -- 그날 token_usage 합
+  tokens_output      INTEGER,
+  extra              TEXT,                        -- JSON 여분 (컬럼 승격 전 실험 지표)
+  created_at         TEXT NOT NULL
+);
 
 -- risk_check : PR ↔ confirmed 리스크 패턴 수동 대조 결과 (DESIGN ⑤의 수동 버전)
 -- 같은 PR을 재대조하면 findings를 갱신한다(diff가 바뀌었으므로 이전 수용/기각도 초기화).

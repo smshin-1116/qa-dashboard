@@ -1,4 +1,4 @@
-import { getDb, nowIso } from './db';
+import { daysBetween, getDb, nowIso } from './db';
 import type {
   FindingKind,
   FindingRow,
@@ -980,6 +980,150 @@ export function riskAcceptanceStats(): { accepted: number; rejected: number } {
     }
   }
   return { accepted, rejected };
+}
+
+// ─── metric_snapshot ───────────────────────────────────────────────────
+// 나머지 테이블은 UPSERT라 이력이 증발한다 — 추이의 유일한 원본이 이 스냅샷이다.
+
+export interface MetricSnapshot {
+  day: string;
+  todoTotal: number;
+  todoDone: number;
+  todoCarry: number;
+  qaTickets: number;
+  qaStallMax: number;
+  qaStallAvg: number;
+  api: { passed: number; failed: number; total: number } | null;
+  web: { passed: number; failed: number; total: number } | null;
+  findingsOpen: number;
+  noticeActive: number;
+  riskConfirmed: number;
+  riskCandidate: number;
+  riskChecks: number;
+  riskAccepted: number;
+  riskRejected: number;
+  bugsFiled: number;
+  tokensInput: number;
+  tokensOutput: number;
+}
+
+/** 오늘 상태를 집계한다 — 전부 로컬 DB 조회 (LLM 0 · 외부 호출 0) */
+export function buildMetricSnapshot(day: string): MetricSnapshot {
+  const db = getDb();
+  const one = <T>(sql: string, ...args: Array<string | number>) =>
+    db.prepare(sql).get(...args) as T;
+
+  const todo = one<{ total: number; done: number; carry: number }>(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN done_at IS NOT NULL THEN 1 ELSE 0 END) AS done,
+            SUM(CASE WHEN first_day < day THEN 1 ELSE 0 END) AS carry
+       FROM todo WHERE day = ?`,
+    day,
+  );
+
+  // 정체일은 status_since 기준 — 2026-08-08에 updated가 아니라 상태 전이 시각으로 고친 값
+  const tickets = db
+    .prepare(`SELECT status_since FROM ticket_link WHERE status = 'QA 중'`)
+    .all() as Array<{ status_since: string | null }>;
+  // daysBetween(a, b) = a - b → 정체일 = 오늘 - 전이일 (순서 주의: 거꾸로 넣으면 음수 → 전부 0)
+  const stalls = tickets
+    .map((t) => (t.status_since ? daysBetween(day, t.status_since.slice(0, 10)) : 0))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  const qaStallMax = stalls.length ? Math.max(...stalls) : 0;
+  const qaStallAvg = stalls.length ? Math.round((stalls.reduce((a, b) => a + b, 0) / stalls.length) * 10) / 10 : 0;
+
+  const latestRun = (runner: string) =>
+    (db
+      .prepare(
+        `SELECT passed, failed, total FROM test_run
+          WHERE runner = ? AND total IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+      )
+      .get(runner) as { passed: number | null; failed: number | null; total: number | null } | undefined) ?? null;
+  const asRun = (r: ReturnType<typeof latestRun>) =>
+    r ? { passed: r.passed ?? 0, failed: r.failed ?? 0, total: r.total ?? 0 } : null;
+
+  const findingsOpen = one<{ n: number }>(`SELECT COUNT(*) AS n FROM finding WHERE resolved_at IS NULL`).n;
+  const noticeActive = one<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM notice
+      WHERE dismissed = 0 AND (snoozed_until IS NULL OR snoozed_until <= ?)`,
+    nowIso(),
+  ).n;
+
+  const riskByStatus = (s: string) => one<{ n: number }>(`SELECT COUNT(*) AS n FROM risk_pattern WHERE status = ?`, s).n;
+  const riskChecks = one<{ n: number }>(`SELECT COUNT(*) AS n FROM risk_check`).n;
+  const { accepted, rejected } = riskAcceptanceStats();
+
+  const bugsFiled = one<{ n: number }>(
+    `SELECT COUNT(DISTINCT bug_ticket) AS n FROM tc WHERE bug_ticket IS NOT NULL AND bug_ticket != ''`,
+  ).n;
+
+  const tokens = one<{ inp: number | null; out: number | null }>(
+    `SELECT SUM(input_tokens) AS inp, SUM(output_tokens) AS out FROM token_usage WHERE day = ?`,
+    day,
+  );
+
+  return {
+    day,
+    todoTotal: todo.total ?? 0,
+    todoDone: todo.done ?? 0,
+    todoCarry: todo.carry ?? 0,
+    qaTickets: tickets.length,
+    qaStallMax,
+    qaStallAvg,
+    api: asRun(latestRun('api')),
+    web: asRun(latestRun('web')),
+    findingsOpen,
+    noticeActive,
+    riskConfirmed: riskByStatus('confirmed'),
+    riskCandidate: riskByStatus('candidate'),
+    riskChecks,
+    riskAccepted: accepted,
+    riskRejected: rejected,
+    bugsFiled,
+    tokensInput: tokens.inp ?? 0,
+    tokensOutput: tokens.out ?? 0,
+  };
+}
+
+/** 하루 1행 — 같은 날 재수집은 최신값으로 갱신 (멱등) */
+export function upsertMetricSnapshot(m: MetricSnapshot): void {
+  getDb()
+    .prepare(
+      `INSERT INTO metric_snapshot
+         (day, todo_total, todo_done, todo_carry, qa_tickets, qa_stall_max, qa_stall_avg,
+          api_passed, api_failed, api_total, web_passed, web_failed, web_total,
+          findings_open, notice_active, risk_confirmed, risk_candidate,
+          risk_checks, risk_accepted, risk_rejected, bugs_filed, blocked_pre_deploy,
+          tokens_input, tokens_output, extra, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?)
+       ON CONFLICT(day) DO UPDATE SET
+         todo_total = excluded.todo_total, todo_done = excluded.todo_done, todo_carry = excluded.todo_carry,
+         qa_tickets = excluded.qa_tickets, qa_stall_max = excluded.qa_stall_max, qa_stall_avg = excluded.qa_stall_avg,
+         api_passed = excluded.api_passed, api_failed = excluded.api_failed, api_total = excluded.api_total,
+         web_passed = excluded.web_passed, web_failed = excluded.web_failed, web_total = excluded.web_total,
+         findings_open = excluded.findings_open, notice_active = excluded.notice_active,
+         risk_confirmed = excluded.risk_confirmed, risk_candidate = excluded.risk_candidate,
+         risk_checks = excluded.risk_checks, risk_accepted = excluded.risk_accepted,
+         risk_rejected = excluded.risk_rejected, bugs_filed = excluded.bugs_filed,
+         tokens_input = excluded.tokens_input, tokens_output = excluded.tokens_output,
+         created_at = excluded.created_at`,
+    )
+    .run(
+      m.day, m.todoTotal, m.todoDone, m.todoCarry, m.qaTickets, m.qaStallMax, m.qaStallAvg,
+      m.api?.passed ?? null, m.api?.failed ?? null, m.api?.total ?? null,
+      m.web?.passed ?? null, m.web?.failed ?? null, m.web?.total ?? null,
+      m.findingsOpen, m.noticeActive, m.riskConfirmed, m.riskCandidate,
+      m.riskChecks, m.riskAccepted, m.riskRejected, m.bugsFiled,
+      m.tokensInput, m.tokensOutput, nowIso(),
+    );
+}
+
+/** 추이 조회 — 오래된 것부터 (차트 x축 순서) */
+export function listMetricSnapshots(limitDays = 90): Array<Record<string, unknown>> {
+  return getDb()
+    .prepare(`SELECT * FROM metric_snapshot ORDER BY day DESC LIMIT ?`)
+    .all(limitDays)
+    .reverse() as Array<Record<string, unknown>>;
 }
 
 /** 리스크 패턴 추출용 — DV 버그 티켓 요약 목록 (최신순) */
