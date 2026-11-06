@@ -4,8 +4,6 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "dev:main": "next dev --turbopack --port 3000",
-    "dev:enhancement": "next dev --turbopack --port 3001",
     "dev:record": "PIPELINE_RECORD=1 next dev --turbopack",
     "dev:mock": "PIPELINE_MOCK=1 next dev --turbopack",
     "build": "next build",
@@ -14,16 +12,11 @@
     "collect": "node --experimental-strip-types --no-warnings --import ./scripts/ts-resolve-hook.mjs scripts/collect.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
-    "@google/generative-ai": "^0.24.1",
     "date-fns": "^4.1.0",
     "googleapis": "^171.4.0",
-    "he": "^1.2.0",
     "idb": "^8.0.3",
-    "jsdom": "^26.1.0",
     "marked": "^17.0.5",
     "next": "15.4.5",
-    "openai": "^5.12.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "shiki": "^4.0.2",
@@ -33,14 +26,11 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
-    "@types/he": "^1.2.3",
-    "@types/jsdom": "^21.1.7",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.4.5",
-    "exceljs": "^4.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
