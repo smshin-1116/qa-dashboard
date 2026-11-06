@@ -7,11 +7,15 @@ export const metadata: Metadata = {
 
 // ─── 데이터 ────────────────────────────────────────────────────────────────────
 
+// 실측 기준일 2026-09-10 — 수치를 바꿀 때는 아래 명령으로 다시 재고, 추정치를 쓰지 말 것.
+//   LOC     : find app components lib hooks stores constants types -name '*.ts' -o -name '*.tsx' | xargs wc -l | tail -1
+//   Commits : git rev-list --count HEAD
+// (화면에 표시되는 숫자가 실제와 다른 것은 어떤 미구현보다 나쁘다)
 const STATS = [
-  { value: '~5,000', label: 'TypeScript LOC' },
-  { value: '33', label: 'Commits' },
-  { value: '4', label: '단계 에이전트 파이프라인' },
-  { value: '5', label: 'MCP 연동 (Jira·Confluence·Figma·GitHub·Slack)' },
+  { value: '20,834', label: 'TypeScript LOC' },
+  { value: '90', label: 'Commits' },
+  { value: '13', label: 'SQLite 테이블 (schema v8)' },
+  { value: '5', label: '신호원 자동 수집 (LLM 0)' },
 ];
 
 const PIPELINE = [
